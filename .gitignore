@@ -46,7 +46,7 @@ Desktop.ini   # Windows
 # MyPy / Static analysis
 .mypy_cache/
 .dmypy.json
-mypy_data/
+# mypy_data/
 
 # Notebooks
 .ipynb_checkpoints/
@@ -91,4 +91,3 @@ static_collected/
 
 scratch/
 vault/
-data/
