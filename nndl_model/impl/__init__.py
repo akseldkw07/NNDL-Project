@@ -1,0 +1,1 @@
+from nndl_model.impl.cnn_3_128_v000_test_aksel import CNN_3_128_V000_Test_Aksel
