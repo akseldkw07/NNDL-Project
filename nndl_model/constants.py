@@ -26,3 +26,9 @@ def pick_device() -> DEVICE_LITERAL:
 
 DEVICE_TORCH_STR: DEVICE_LITERAL = pick_device()
 DEVICE = torch.device(DEVICE_TORCH_STR)
+
+
+# IMAGES
+DEF_IMAGE_SIZE = 64  # 64x64 images
+MEAN_IMG = (0.4170, 0.3801, 0.3132)  # computed over training set - notebooks/Exploration.ipynb
+STD_IMG = (0.2131, 0.2014, 0.1924)  # computed over training set - notebooks/Exploration.ipynb

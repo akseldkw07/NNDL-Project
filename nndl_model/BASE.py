@@ -27,9 +27,9 @@ class BaseModel(nn.Module):
     path: pathlib.Path
     criterion: nn.Module
 
-    head_super: t.Optional[nn.Module]
-    head_sub: t.Optional[nn.Module]
-    M: t.Optional[torch.Tensor]  # [S, K] mapping buffer
+    head_super: nn.Module
+    head_sub: nn.Module
+    M: torch.Tensor  # [S, K] mapping buffer
     alpha: float
     beta: float
     gamma: float
@@ -41,13 +41,13 @@ class BaseModel(nn.Module):
         self.best_acc = 0.0
         self.epochs_trained = 0
         self.model = nn.Sequential()
-        self.head_super = None
-        self.head_sub = None
-        # self.M = None
+        # self.head_super = None# NOTE: NOT SET HERE
+        # self.head_sub = None # NOTE: NOT SET HERE
+        # self.M = None # NOTE: NOT SET HERE
         self.alpha, self.beta, self.gamma = 1.0, 1.0, 0.1
         self.criterion = nn.CrossEntropyLoss()
-        # self.optimizer # NOTE: NOT SET
-        # self.scheduler # NOTE: NOT SET
+        # self.optimizer # NOTE: NOT SET HERE
+        # self.scheduler # NOTE: NOT SET HERE
         self.device = DEVICE_TORCH_STR
         self.to(self.device)
         self.path = MODEL_WEIGHT_DIR / f"{self.__class__.__name__}_weights.pth"
@@ -85,15 +85,11 @@ class BaseModel(nn.Module):
         self.register_buffer("M", M)  # saves/loads with state_dict, not optimized
 
         self.alpha, self.beta, self.gamma = float(alpha), float(beta), float(gamma)
+        self.to(self.device)
 
-        # Recreate optimizer so new head params are included
-        self.optimizer = torch.optim.Adam(self.parameters(), lr=self.optimizer.param_groups[0]["lr"])
-
-    def forward(self, x):
-        h = self.model(x)
-        if self.head_super is not None and self.head_sub is not None:
-            return self.head_super(h), self.head_sub(h)
-        return h
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        h: torch.Tensor = self.model(x)
+        return self.head_super(h), self.head_sub(h)
 
     def _hierarchical_loss(
         self, logits_sup: torch.Tensor, logits_sub: torch.Tensor, y_sup: torch.Tensor, y_sub: torch.Tensor
@@ -117,7 +113,7 @@ class BaseModel(nn.Module):
 
         return self.alpha * loss_sup + self.beta * loss_sub + self.gamma * kl
 
-    def get_loss(self, outputs: tuple[torch.Tensor, torch.Tensor], labels: TorchDict | torch.Tensor):
+    def get_loss(self, outputs: tuple[torch.Tensor, torch.Tensor], labels: TorchDict | torch.Tensor) -> torch.Tensor:
         device = self.device
         if isinstance(outputs, tuple) and isinstance(labels, dict):
             logits_sup, logits_sub = outputs

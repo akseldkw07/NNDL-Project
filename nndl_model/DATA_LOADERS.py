@@ -6,10 +6,11 @@ from pathlib import Path
 import pandas as pd
 import torch
 from PIL import Image
-from torch.utils.data import DataLoader, Dataset, random_split
+from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms as T
+from torch.utils.data import Subset
 
-from nndl_model.constants import DATA_DIR
+from nndl_model.constants import DATA_DIR, DEF_IMAGE_SIZE, MEAN_IMG, STD_IMG
 
 # ----------------------------
 # Configurable column names
@@ -17,6 +18,7 @@ from nndl_model.constants import DATA_DIR
 COL_IMAGE = "image"  # e.g., "123.jpg"
 COL_SUPER = "superclass_index"  # integer id in [0..S-1]
 COL_SUB = "subclass_index"  # integer id in [0..K-1]
+SEED = 1337  # for reproducibility
 
 
 class HierImageDataset(Dataset):
@@ -75,26 +77,22 @@ class HierImageDataset(Dataset):
         return x, labels
 
 
-def default_transforms(image_size: int = 224) -> dict[str, T.Compose]:
-    # ImageNet-ish recipe; change size if you like
-    mean = (0.485, 0.456, 0.406)
-    std = (0.229, 0.224, 0.225)
+def default_transforms(image_size: int = DEF_IMAGE_SIZE) -> dict[str, T.Compose]:
 
     train_tf = T.Compose(
         [
-            T.Resize(int(image_size * 1.14)),  # keep aspect ratio
-            T.RandomResizedCrop(image_size),
+            T.RandomCrop(image_size, padding=4),
             T.RandomHorizontalFlip(),
+            T.ColorJitter(0.1, 0.1, 0.1, 0.05),  # mild
             T.ToTensor(),
-            T.Normalize(mean, std),
+            T.Normalize(MEAN_IMG, STD_IMG),  # see below
         ]
     )
     eval_tf = T.Compose(
         [
-            T.Resize(int(image_size * 1.14)),
-            T.CenterCrop(image_size),
+            T.Resize(image_size),  # or identity if your loader reads exact 64×64
             T.ToTensor(),
-            T.Normalize(mean, std),
+            T.Normalize(MEAN_IMG, STD_IMG),
         ]
     )
     return {"train": train_tf, "eval": eval_tf}
@@ -121,7 +119,7 @@ def make_dataloaders(
     batch_size: int = 64,
     num_workers: int = 4,
     val_fraction: float = 0.1,
-    image_size: int = 224,
+    image_size: int = DEF_IMAGE_SIZE,
     pin_memory: bool = True,
 ) -> tuple[DataLoader, DataLoader, DataLoader, torch.Tensor, int, int]:
     """
@@ -146,13 +144,19 @@ def make_dataloaders(
         raise ValueError(f"{train_csv} must contain column '{COL_SUPER}' (needed for hierarchical training).")
 
     # Split train/val by rows
-    full_ds = HierImageDataset(train_images, train_csv, transform=tfs["train"], is_test=False)
-    n_total = len(full_ds)
+    full = HierImageDataset(train_images, train_csv, transform=None, is_test=False)
+
+    n_total = len(full)
     n_val = max(1, int(round(val_fraction * n_total)))
-    n_train = n_total - n_val
-    train_ds, val_ds = random_split(full_ds, [n_train, n_val], generator=torch.Generator().manual_seed(1337))
-    # Use eval transforms for val dataset
-    val_ds.dataset.transform = tfs["eval"]
+    perm = torch.randperm(n_total, generator=torch.Generator().manual_seed(SEED))
+    val_idx = perm[:n_val].tolist()
+    train_idx = perm[n_val:].tolist()
+
+    train_base = HierImageDataset(train_images, train_csv, transform=tfs["train"], is_test=False)
+    val_base = HierImageDataset(train_images, train_csv, transform=tfs["eval"], is_test=False)
+
+    train_ds = Subset(train_base, train_idx)
+    val_ds = Subset(val_base, val_idx)
 
     # Test dataset (no labels)
     test_ds = HierImageDataset(test_images, labels_csv=None, transform=tfs["eval"], is_test=True)
