@@ -239,7 +239,7 @@ class BaseModel(nn.Module):
 
             wandb.log(
                 {
-                    "Epoch": self.model_state["epochs_trained"],
+                    # "Epoch": self.model_state["epochs_trained"],
                     "Train Loss": epoch_loss,
                     "Validation Loss": val_loss,
                     "Train Accuracy (super)": epoch_acc_sup,
