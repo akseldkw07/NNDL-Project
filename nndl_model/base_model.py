@@ -55,8 +55,6 @@ class BaseModel(nn.Module):
     optimizer: torch.optim.Optimizer  # NOTE: NOT SET in __init__
     scheduler: torch.optim.lr_scheduler.LRScheduler  # NOTE: NOT SET in __init__
     device: t.Literal["cuda", "mps", "xpu", "cpu"]  # DEVICE_TORCH_STR
-    root_dir: pathlib.Path
-    model_paths: ModelPathDict
     criterion: nn.Module
 
     head_super: nn.Module  # NOTE: NOT SET in __init__
@@ -81,12 +79,6 @@ class BaseModel(nn.Module):
         self.logger = logging.getLogger(self.name())
         self.model = nn.Sequential()
         self.device = DEVICE_TORCH_STR
-        self.root_dir = MODEL_WEIGHT_DIR / f"{self.name()}"
-        self.model_paths = {
-            "weight_path": self.root_dir / "weights.pt",
-            "model_path": self.root_dir / "model.txt",
-            "state_path": self.root_dir / "state.json",
-        }
         self.criterion = nn.CrossEntropyLoss()
 
         # Register mapping as non-trainable buffer on the correct device
@@ -332,13 +324,30 @@ class BaseModel(nn.Module):
         return val_loss, val_acc_sub, val_acc_sup
 
     # SAVING
-    def save_weights(self):
+    @property
+    def root_dir(self) -> pathlib.Path:
+        return MODEL_WEIGHT_DIR / f"{self.name()}"
+
+    @property
+    def model_paths(self) -> ModelPathDict:
+        return {
+            "weight_path": self.root_dir / "weights.pt",
+            "model_path": self.root_dir / "model.txt",
+            "state_path": self.root_dir / "state.json",
+        }
+
+    def save_weights(self, increment_version: bool = False):
         """
         Save the model weights, summary, and training state to a file.
 
         Args:
             path (str): File path to save the weights.
         """
+        if increment_version:
+            version_num = int(self.version.strip("v")) + 1
+            self.version = f"v{version_num:03d}"
+            self.logger.warning(f"Incremented model version to {self.version}.")
+
         print(f"Saving model weights to {self.root_dir}, view model summary at {self.model_paths['model_path']}")
 
         self.root_dir.mkdir(parents=True, exist_ok=True)
