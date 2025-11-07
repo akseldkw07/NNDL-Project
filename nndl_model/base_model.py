@@ -32,16 +32,16 @@ class HyperParamTotalDict(t.TypedDict, total=True):
 
 
 class ModelStateDict(t.TypedDict):
-    best_loss: float
     best_acc_sub: float
     best_acc_sup: float
+    best_loss: float
     epochs_trained: int
 
 
 class ModelPathDict(t.TypedDict):
-    weight_path: pathlib.Path
     model_path: pathlib.Path
     state_path: pathlib.Path
+    weight_path: pathlib.Path
 
 
 DEFAULT_HYPER_PARAMS = HyperParamTotalDict(lr=1e-3, alpha=1, beta=1, gamma=0.1)
@@ -198,6 +198,7 @@ class BaseModel(nn.Module):
             raise RuntimeError("post_init must be called before training the model.")
 
         device = self.device
+        last_epoch = self.model_state["epochs_trained"] + epochs
         for epoch in tqdm.tqdm(range(epochs)):
             self.train()
             running_loss = 0.0
@@ -246,7 +247,7 @@ class BaseModel(nn.Module):
 
             wandb.log(
                 {
-                    "Epoch": self.model_state["epochs_trained"] + epoch + 1,
+                    "Epoch": self.model_state["epochs_trained"],
                     "Train Loss": epoch_loss,
                     "Validation Loss": val_loss,
                     "Train Accuracy (super)": epoch_acc_sup,
@@ -258,25 +259,26 @@ class BaseModel(nn.Module):
 
             if val_loss < self.model_state["best_loss"]:
                 print(
-                    f"New best model found at epoch {self.model_state['epochs_trained'] + epoch + 1}!. Old (val) loss: {self.model_state['best_loss']:.4f}, New (val) loss: {val_loss:.4f}"
+                    f"New best model found at epoch {self.model_state['epochs_trained'] }!. Old (val) loss: {self.model_state['best_loss']:.4f}, New (val) loss: {val_loss:.4f}"
                 )
-                self.model_state = {
-                    "best_loss": val_loss,
-                    "best_acc_sub": val_acc_sub,
-                    "best_acc_sup": val_acc_sup,
-                    "epochs_trained": self.model_state["epochs_trained"] + epoch + 1,
-                }
+                self.model_state.update(
+                    {
+                        "best_loss": val_loss,
+                        "best_acc_sub": val_acc_sub,
+                        "best_acc_sup": val_acc_sup,
+                    }
+                )
                 self.save_weights()
 
+            self.model_state["epochs_trained"] += 1
+            sep = "  |  "
             print(
-                f"Epoch {self.model_state['epochs_trained'] + epoch + 1}/{self.model_state['epochs_trained'] + epochs}.        "
-                f"Train Loss: {epoch_loss:.4f} "
-                f"Train Acc (sup/sub): {epoch_acc_sup:.4f}/{epoch_acc_sub:.4f}          "
-                f"Val Loss: {val_loss:.4f} "
+                f"Epoch {self.model_state['epochs_trained']}/{last_epoch}{sep}"
+                f"Train Loss: {epoch_loss:.4f}{sep}"
+                f"Train Acc (sup/sub): {epoch_acc_sup:.4f}/{epoch_acc_sub:.4f}{sep}"
+                f"Val Loss: {val_loss:.4f}{sep}"
                 f"Val Acc (sup/sub): {val_acc_sup:.4f}/{val_acc_sub:.4f}\n"
             )
-
-        # self.model_state["epochs_trained"] += epochs
 
     def evaluate(self, val_loader: DataLoader) -> tuple[float, float, float]:
         """
@@ -379,6 +381,7 @@ class BaseModel(nn.Module):
             state: ModelStateDict = json.load(f)
 
         self.model_state = state
+        self.logger.info(f"Loaded model weights and state from {self.root_dir}.")
 
     # NAMING
     @classmethod
@@ -399,3 +402,7 @@ class BaseModel(nn.Module):
         model = self.__str__()
         training_summary = self.model_state.__str__()
         return f"Model: {name=}\n{model}\n\n{training_summary}\n"
+
+    @property
+    def best_val_loss(self):
+        return self.model_state

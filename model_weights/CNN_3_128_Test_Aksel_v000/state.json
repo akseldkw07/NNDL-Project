@@ -1,6 +1,6 @@
 {
-  "best_acc_sub": 0.3751987281399046,
-  "best_acc_sup": 0.9395866454689984,
-  "best_loss": 2.3442037613479054,
-  "epochs_trained": 26
+  "best_acc_sub": 0.43402225755166934,
+  "best_acc_sup": 0.9491255961844197,
+  "best_loss": 2.19102332777742,
+  "epochs_trained": 31
 }
