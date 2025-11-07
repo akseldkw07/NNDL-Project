@@ -8,6 +8,9 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT_DIR / "img_data"
 MODEL_WEIGHT_DIR = ROOT_DIR / "model_weights"
 
+# WANDB
+WANDB_PROJECT_NAME = "nndl-project"
+
 # DEVICE
 DEVICE_LITERAL = t.Literal["cuda", "mps", "xpu", "cpu"]  # extend to include "xla", "xpu" if needed
 

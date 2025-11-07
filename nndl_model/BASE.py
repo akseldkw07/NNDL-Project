@@ -18,10 +18,20 @@ class TorchDict(t.TypedDict):
 
 
 class HyperParamDict(t.TypedDict, total=False):
-    lr: t.Required[float]
+    lr: float
     alpha: float
     beta: float
     gamma: float
+
+
+class HyperParamTotalDict(t.TypedDict, total=True):
+    lr: float
+    alpha: float
+    beta: float
+    gamma: float
+
+
+DEFAULT_HYPER_PARAMS = HyperParamTotalDict(lr=1e-3, alpha=1, beta=1, gamma=0.1)
 
 
 class BaseModel(nn.Module):
@@ -55,7 +65,11 @@ class BaseModel(nn.Module):
 
     def __init__(self, M: torch.Tensor, **hparams: t.Unpack[HyperParamDict]):
         super().__init__()
-        self.lr = hparams.get("lr", 0.001)
+        hparams_req = DEFAULT_HYPER_PARAMS
+        hparams_req.update(hparams)
+
+        print(f"Hyperparams: {hparams_req}")
+        self.lr = hparams_req["lr"]
         self.best_loss = float("inf")
         self.best_acc_sub = 0.0
         self.epochs_trained = 0
@@ -63,7 +77,7 @@ class BaseModel(nn.Module):
         # self.optimizer # NOTE: NOT SET HERE
         # self.scheduler # NOTE: NOT SET HERE
         self.device = DEVICE_TORCH_STR
-        self.path = MODEL_WEIGHT_DIR / f"{self.__class__.__name__}_weights.pt"
+        self.path = MODEL_WEIGHT_DIR / f"{self.name()}"
         self.criterion = nn.CrossEntropyLoss()
 
         # self.head_super = None# NOTE: NOT SET HERE
@@ -72,8 +86,7 @@ class BaseModel(nn.Module):
         # Register mapping as non-trainable buffer on the correct device
         self._M = M.to(self.device).float()
         self.S, self.K = M.shape
-        self.alpha, self.beta = (hparams.get("alpha", 1.0), hparams.get("beta", 1.0))
-        self.gamma = hparams.get("gamma", 0.1)
+        self.alpha, self.beta, self.gamma = hparams_req["alpha"], hparams_req["beta"], hparams_req["gamma"]
 
         self.to(self.device)
         self.logger = logging.getLogger(__name__)
@@ -120,23 +133,19 @@ class BaseModel(nn.Module):
         tilde_p_sup = (self.M @ p_sub.T).T  # [B, S]
         tilde_p_sup = tilde_p_sup / tilde_p_sup.sum(dim=1, keepdim=True).clamp_min(eps)
 
-        # KL(tilde || p_sup)
         # KL(tilde || p_sup) with numerical stability: avoid log(0) by clamping
-        kl = F.kl_div(
-            p_sup,  # input in log space
-            tilde_p_sup.log(),  # target in log space
-            reduction="batchmean",
-            log_target=True,
-        )
+        kl = F.kl_div(p_sup, tilde_p_sup.log(), reduction="batchmean", log_target=True)
         return self.alpha * loss_sup + self.beta * loss_sub + self.gamma * kl
 
     def get_loss(self, outputs: tuple[torch.Tensor, torch.Tensor], labels: TorchDict | torch.Tensor) -> torch.Tensor:
         device = self.device
+
         if isinstance(outputs, tuple) and isinstance(labels, dict):
             logits_sup, logits_sub = outputs
             y_sup = labels["super"].to(device)
             y_sub = labels["sub"].to(device)
             return self._hierarchical_loss(logits_sup, logits_sub, y_sup, y_sub)
+
         elif isinstance(labels, torch.Tensor):
             logits = outputs if not isinstance(outputs, tuple) else outputs[0]
             labels = labels.to(device)
@@ -284,16 +293,7 @@ class BaseModel(nn.Module):
 
         return val_loss, val_acc_sub, val_acc_sup
 
-    def summary(self):
-        """
-        Returns a string summarizing training progress and best metrics.
-        """
-        return (
-            f"Epochs trained: {self.epochs_trained}\n"
-            f"Best Validation Loss: {self.best_loss:.4f}\n"
-            f"Best Validation Accuracy: {self.best_acc_sub:.4f}"
-        )
-
+    # SAVING
     def save_weights(self):
         """
         Save the model weights to a file.
@@ -301,7 +301,11 @@ class BaseModel(nn.Module):
         Args:
             path (str): File path to save the weights.
         """
-        torch.save(self.state_dict(), self.path)
+        self.path.mkdir(parents=True, exist_ok=True)
+        torch.save(self.state_dict(), self.path / "weights.pt")
+
+        with open(self.path / "model.txt", "w", encoding="utf-8") as f:
+            f.write(self.summary())
 
     def load_weights(self):
         """
@@ -312,3 +316,27 @@ class BaseModel(nn.Module):
             map_location (torch.device or str, optional): Device mapping for loading.
         """
         self.load_state_dict(torch.load(self.path, map_location=self.device))
+
+    # NAMING
+    @classmethod
+    def name(cls, include_version: bool = True) -> str:
+        """
+        Returns a string identifier combining the class name and version.
+        """
+        version = getattr(cls, "version", "v000")
+        if include_version:
+            return f"{cls.__name__}_{version}"
+        return cls.__name__
+
+    def summary(self):
+        """
+        Returns a string summarizing training progress and best metrics.
+        """
+        name = self.name()
+        model = self.__str__()
+        training_summary = (
+            f"Epochs trained: {self.epochs_trained}     "
+            f"Best Validation Loss: {self.best_loss:.4f}     "
+            f"Best Validation Accuracy: {self.best_acc_sub:.4f}"
+        )
+        return f"Model: {name=}\n{model}\n\n{training_summary}"
