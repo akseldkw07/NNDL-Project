@@ -35,11 +35,6 @@ DEFAULT_HYPER_PARAMS = HyperParamTotalDict(lr=1e-3, alpha=1, beta=1, gamma=0.1)
 
 
 class BaseModel(nn.Module):
-    """
-    TODO
-    move versioning to class attribute
-    define __repr__ method
-    """
 
     version: str = "v000"
     lr: float
@@ -57,6 +52,7 @@ class BaseModel(nn.Module):
     head_super: nn.Module
     head_sub: nn.Module
     _M: torch.Tensor  # [S, K] mapping buffer
+    M: torch.Tensor  # this will be registered as buffer
     S: int
     K: int
     alpha: float
@@ -120,21 +116,22 @@ class BaseModel(nn.Module):
 
     def _hierarchical_loss(
         self, logits_sup: torch.Tensor, logits_sub: torch.Tensor, y_sup: torch.Tensor, y_sub: torch.Tensor
-    ):
+    ) -> torch.Tensor:
+        # Cross-entropy wants raw logits (no softmax)
         loss_sup = F.cross_entropy(logits_sup, y_sup)
         loss_sub = F.cross_entropy(logits_sub, y_sub)
 
-        # Probabilities
-        p_sup = F.softmax(logits_sup, dim=1)
-        p_sub = F.softmax(logits_sub, dim=1)
+        # KL(tilde || p_sup), computed in log-prob space for stability
+        log_p_sup = F.log_softmax(logits_sup, dim=1)  # [B, S]
 
-        # Aggregate subclass probabilities to super classes: tilde_p_sup = normalize(M @ p_sub)
+        p_sub = F.softmax(logits_sub, dim=1)  # [B, K]
         eps = 1e-8
         tilde_p_sup = (self.M @ p_sub.T).T  # [B, S]
         tilde_p_sup = tilde_p_sup / tilde_p_sup.sum(dim=1, keepdim=True).clamp_min(eps)
+        log_tilde_p_sup = torch.log(tilde_p_sup.clamp_min(eps))
 
-        # KL(tilde || p_sup) with numerical stability: avoid log(0) by clamping
-        kl = F.kl_div(p_sup, tilde_p_sup.log(), reduction="batchmean", log_target=True)
+        kl = F.kl_div(log_p_sup, log_tilde_p_sup, reduction="batchmean", log_target=True)
+
         return self.alpha * loss_sup + self.beta * loss_sub + self.gamma * kl
 
     def get_loss(self, outputs: tuple[torch.Tensor, torch.Tensor], labels: TorchDict | torch.Tensor) -> torch.Tensor:

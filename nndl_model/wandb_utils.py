@@ -1,10 +1,10 @@
-from datetime import datetime
 import os
+import typing as t
+from datetime import datetime
+
 import wandb
 
-import typing as t
-
-from nndl_model.base import BaseModel
+from nndl_model.base_model import BaseModel
 from nndl_model.constants import ROOT_DIR
 
 

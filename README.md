@@ -4,4 +4,6 @@
 
 Implement early stopping criteria using validation set
 
-Change naming schema
+Get a model to work?
+
+Fix CE loss?
