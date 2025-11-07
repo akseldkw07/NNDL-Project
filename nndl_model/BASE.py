@@ -75,8 +75,8 @@ class BaseModel(nn.Module):
         - M: binary/float mapping tensor of shape [S, K] with M[s,k]=1 iff sub k belongs to super s
         - alpha, beta, gamma: loss weights for super CE, sub CE, and consistency KL
         """
-        self.head_super = nn.Linear(feature_dim, num_super)
-        self.head_sub = nn.Linear(feature_dim, num_sub)
+        self.head_super = nn.Linear(feature_dim, num_super).to(self.device)
+        self.head_sub = nn.Linear(feature_dim, num_sub).to(self.device)
 
         # Register mapping as non-trainable buffer on the correct device
         M = M.to(self.device).float()
