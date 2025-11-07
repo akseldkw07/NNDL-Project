@@ -91,3 +91,5 @@ static_collected/
 
 scratch/
 vault/
+*.code-workspace
+wandb_logs/
