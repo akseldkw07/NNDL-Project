@@ -47,7 +47,9 @@ class HierImageDataset(Dataset):
 
         if labels_csv is None:
             # Test set: filenames are all files in images_dir
-            self.df = pd.DataFrame({self.id_column: sorted(os.listdir(self.images_dir))})
+            files = os.listdir(images_dir)
+            files.sort(key=lambda s: int(Path(s).stem))  # numeric sort
+            self.df = pd.DataFrame({self.id_column: files})
             self.has_labels = False
         else:
             self.df = pd.read_csv(labels_csv)
@@ -121,10 +123,10 @@ def make_dataloaders(
     val_fraction: float = 0.1,
     image_size: int = DEF_IMAGE_SIZE,
     pin_memory: bool = True,
-) -> tuple[DataLoader, DataLoader, DataLoader, torch.Tensor, int, int]:
+):
     """
     Returns:
-      train_loader, val_loader, test_loader, M[S,K], S, K
+      train_loader, val_loader, test_loader, M[S,K]
     """
     train_images = data_dir / "train_images"
     test_images = data_dir / "test_images"
@@ -163,7 +165,6 @@ def make_dataloaders(
 
     # Build M mapping for BaseModel.configure_hierarchy
     M = build_M(sup_csv, sub_csv, df)
-    S, K = M.shape
 
     train_loader = DataLoader(
         train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=pin_memory
@@ -175,4 +176,4 @@ def make_dataloaders(
         test_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=pin_memory
     )
 
-    return train_loader, val_loader, test_loader, M, S, K
+    return train_loader, val_loader, test_loader, M

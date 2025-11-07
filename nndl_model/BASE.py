@@ -4,10 +4,12 @@ import typing as t
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import tqdm
 import wandb
 from torch.utils.data import DataLoader
 
 from nndl_model.constants import DEVICE_TORCH_STR, MODEL_WEIGHT_DIR
+import logging
 
 
 class TorchDict(t.TypedDict):
@@ -15,10 +17,25 @@ class TorchDict(t.TypedDict):
     sub: torch.Tensor
 
 
+class HyperParamDict(t.TypedDict, total=False):
+    lr: t.Required[float]
+    alpha: float
+    beta: float
+    gamma: float
+
+
 class BaseModel(nn.Module):
+    """
+    TODO
+    move versioning to class attribute
+    define __repr__ method
+    """
+
+    version: str = "v000"
     lr: float
     best_loss: float
-    best_acc: float
+    best_acc_sub: float
+    best_acc_sup: float
     epochs_trained: int
     model: nn.Module  # nn.Sequential or other nn.Module
     optimizer: torch.optim.Optimizer
@@ -29,44 +46,44 @@ class BaseModel(nn.Module):
 
     head_super: nn.Module
     head_sub: nn.Module
-    M: torch.Tensor  # [S, K] mapping buffer
+    _M: torch.Tensor  # [S, K] mapping buffer
+    S: int
+    K: int
     alpha: float
     beta: float
     gamma: float
 
-    def __init__(self, lr: float = 0.001):
+    def __init__(self, M: torch.Tensor, **hparams: t.Unpack[HyperParamDict]):
         super().__init__()
-        self.lr = lr
+        self.lr = hparams.get("lr", 0.001)
         self.best_loss = float("inf")
-        self.best_acc = 0.0
+        self.best_acc_sub = 0.0
         self.epochs_trained = 0
         self.model = nn.Sequential()
-        # self.head_super = None# NOTE: NOT SET HERE
-        # self.head_sub = None # NOTE: NOT SET HERE
-        # self.M = None # NOTE: NOT SET HERE
-        self.alpha, self.beta, self.gamma = 1.0, 1.0, 0.1
-        self.criterion = nn.CrossEntropyLoss()
         # self.optimizer # NOTE: NOT SET HERE
         # self.scheduler # NOTE: NOT SET HERE
         self.device = DEVICE_TORCH_STR
+        self.path = MODEL_WEIGHT_DIR / f"{self.__class__.__name__}_weights.pt"
+        self.criterion = nn.CrossEntropyLoss()
+
+        # self.head_super = None# NOTE: NOT SET HERE
+        # self.head_sub = None # NOTE: NOT SET HERE
+
+        # Register mapping as non-trainable buffer on the correct device
+        self._M = M.to(self.device).float()
+        self.S, self.K = M.shape
+        self.alpha, self.beta = (hparams.get("alpha", 1.0), hparams.get("beta", 1.0))
+        self.gamma = hparams.get("gamma", 0.1)
+
         self.to(self.device)
-        self.path = MODEL_WEIGHT_DIR / f"{self.__class__.__name__}_weights.pth"
+        self.logger = logging.getLogger(__name__)
 
     def reset_optimizer(self) -> None:
         """(Re)create optimizer and scheduler now that parameters exist."""
         self.optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=7, gamma=0.1)
 
-    def configure_hierarchy(
-        self,
-        feature_dim: int,
-        num_super: int,
-        num_sub: int,
-        M: torch.Tensor,
-        alpha: float = 1.0,
-        beta: float = 1.0,
-        gamma: float = 0.1,
-    ):
+    def configure_hierarchy(self, feature_dim: int):
         """
         Turn on hierarchical classification.
         - feature_dim: size of features emitted by self.model(x)
@@ -75,16 +92,13 @@ class BaseModel(nn.Module):
         - M: binary/float mapping tensor of shape [S, K] with M[s,k]=1 iff sub k belongs to super s
         - alpha, beta, gamma: loss weights for super CE, sub CE, and consistency KL
         """
-        self.head_super = nn.Linear(feature_dim, num_super).to(self.device)
-        self.head_sub = nn.Linear(feature_dim, num_sub).to(self.device)
+        self.head_super = nn.Linear(feature_dim, self.S).to(self.device)
+        self.head_sub = nn.Linear(feature_dim, self.K).to(self.device)
 
-        # Register mapping as non-trainable buffer on the correct device
-        M = M.to(self.device).float()
-        if M.dim() != 2 or M.size(0) != num_super or M.size(1) != num_sub:
-            raise ValueError("M must have shape [num_super, num_sub]")
-        self.register_buffer("M", M)  # saves/loads with state_dict, not optimized
+        if self._M.dim() != 2 or self._M.size(0) != self.S or self._M.size(1) != self.K:
+            raise ValueError("M must have shape [S, K]")
+        self.register_buffer("M", self._M)  # saves/loads with state_dict, not optimized
 
-        self.alpha, self.beta, self.gamma = float(alpha), float(beta), float(gamma)
         self.to(self.device)
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -94,9 +108,6 @@ class BaseModel(nn.Module):
     def _hierarchical_loss(
         self, logits_sup: torch.Tensor, logits_sub: torch.Tensor, y_sup: torch.Tensor, y_sub: torch.Tensor
     ):
-        if self.M is None:
-            raise RuntimeError("Hierarchy not configured. Call configure_hierarchy(...) first.")
-
         loss_sup = F.cross_entropy(logits_sup, y_sup)
         loss_sub = F.cross_entropy(logits_sub, y_sub)
 
@@ -105,12 +116,18 @@ class BaseModel(nn.Module):
         p_sub = F.softmax(logits_sub, dim=1)
 
         # Aggregate subclass probabilities to super classes: tilde_p_sup = normalize(M @ p_sub)
+        eps = 1e-8
         tilde_p_sup = (self.M @ p_sub.T).T  # [B, S]
-        tilde_p_sup = tilde_p_sup / tilde_p_sup.sum(dim=1, keepdim=True).clamp_min(1e-12)
+        tilde_p_sup = tilde_p_sup / tilde_p_sup.sum(dim=1, keepdim=True).clamp_min(eps)
 
         # KL(tilde || p_sup)
-        kl = F.kl_div(p_sup.log(), tilde_p_sup, reduction="batchmean")
-
+        # KL(tilde || p_sup) with numerical stability: avoid log(0) by clamping
+        kl = F.kl_div(
+            p_sup,  # input in log space
+            tilde_p_sup.log(),  # target in log space
+            reduction="batchmean",
+            log_target=True,
+        )
         return self.alpha * loss_sup + self.beta * loss_sub + self.gamma * kl
 
     def get_loss(self, outputs: tuple[torch.Tensor, torch.Tensor], labels: TorchDict | torch.Tensor) -> torch.Tensor:
@@ -139,7 +156,7 @@ class BaseModel(nn.Module):
 
         """
         device = self.device
-        for epoch in range(epochs):
+        for epoch in tqdm.tqdm(range(epochs)):
             self.train()
             running_loss = 0.0
             running_corrects_sup = 0
@@ -160,7 +177,7 @@ class BaseModel(nn.Module):
 
                 loss = self.get_loss(outputs, labels)
                 loss.backward()
-                self.optimizer.step()
+                self.optimizer.step()  # TODO gradient clipping? Residual connections?
 
                 running_loss += loss.item() * inputs.size(0)
 
@@ -198,14 +215,18 @@ class BaseModel(nn.Module):
             )
 
             if val_loss < self.best_loss:
+                print(
+                    f"New best model found at epoch {self.epochs_trained + epoch + 1}!. Old loss: {self.best_loss:.4f}, New loss: {val_loss:.4f}"
+                )
                 self.best_loss = val_loss
-                self.best_acc = val_acc_sub
+                self.best_acc_sub = val_acc_sub
+                self.best_acc_sup = val_acc_sup
                 self.save_weights()
 
             print(
                 f"Epoch {self.epochs_trained + epoch + 1}/{self.epochs_trained + epochs} "
                 f"Train Loss: {epoch_loss:.4f} "
-                f"Train Acc (sup/sub): {epoch_acc_sup:.4f}/{epoch_acc_sub:.4f} "
+                f"Train Acc (sup/sub): {epoch_acc_sup:.4f}/{epoch_acc_sub:.4f} \n"
                 f"Val Loss: {val_loss:.4f} "
                 f"Val Acc (sup/sub): {val_acc_sup:.4f}/{val_acc_sub:.4f}"
             )
@@ -270,7 +291,7 @@ class BaseModel(nn.Module):
         return (
             f"Epochs trained: {self.epochs_trained}\n"
             f"Best Validation Loss: {self.best_loss:.4f}\n"
-            f"Best Validation Accuracy: {self.best_acc:.4f}"
+            f"Best Validation Accuracy: {self.best_acc_sub:.4f}"
         )
 
     def save_weights(self):
