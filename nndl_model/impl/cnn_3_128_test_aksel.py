@@ -19,5 +19,4 @@ class CNN_3_128_Test_Aksel(BaseModel):
             nn.Flatten(),  # -> [B, 64]
         )
 
-        self.configure_hierarchy(feature_dim=feature_dim)
-        self.reset_optimizer()
+        self.post_init(feature_dim=feature_dim)
