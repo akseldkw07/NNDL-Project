@@ -1,6 +1,7 @@
-from pathlib import Path
-import torch
 import typing as t
+from pathlib import Path
+
+import torch
 
 # Define paths
 ROOT_DIR = Path(__file__).resolve().parent.parent

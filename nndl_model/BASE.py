@@ -1,10 +1,12 @@
 import pathlib
+import typing as t
+
 import torch
 import torch.nn as nn
-import wandb
-from nndl_model.constants import DEVICE_TORCH_STR, MODEL_WEIGHT_DIR
-import typing as t
 import torch.nn.functional as F
+import wandb
+
+from nndl_model.constants import DEVICE_TORCH_STR, MODEL_WEIGHT_DIR
 
 
 class BaseModel(nn.Module):

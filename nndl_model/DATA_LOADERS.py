@@ -1,20 +1,21 @@
 from __future__ import annotations
+
 import os
 from pathlib import Path
 
-import torch
-from torch.utils.data import Dataset, DataLoader, random_split
-from PIL import Image
 import pandas as pd
+import torch
+from PIL import Image
+from torch.utils.data import DataLoader, Dataset, random_split
 from torchvision import transforms as T
-
+from nndl_model.constants import DATA_DIR
 
 # ----------------------------
 # Configurable column names
 # ----------------------------
 COL_IMAGE = "image"  # e.g., "123.jpg"
-COL_SUPER = "superclass"  # integer id in [0..S-1]
-COL_SUB = "subclass"  # integer id in [0..K-1]
+COL_SUPER = "superclass_index"  # integer id in [0..S-1]
+COL_SUB = "subclass_index"  # integer id in [0..K-1]
 
 
 class HierImageDataset(Dataset):
@@ -115,7 +116,7 @@ def build_M(superclass_csv: Path, subclass_csv: Path, df_train: pd.DataFrame) ->
 
 
 def make_dataloaders(
-    root_dir: Path,
+    data_dir: Path = DATA_DIR,
     batch_size: int = 64,
     num_workers: int = 4,
     val_fraction: float = 0.1,
@@ -126,7 +127,6 @@ def make_dataloaders(
     Returns:
       train_loader, val_loader, test_loader, M[S,K], S, K
     """
-    data_dir = root_dir / "img_data"
     train_images = data_dir / "train_images"
     test_images = data_dir / "test_images"
     train_csv = data_dir / "train_data.csv"
