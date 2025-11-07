@@ -91,3 +91,4 @@ static_collected/
 
 scratch/
 vault/
+*.code-workspace
