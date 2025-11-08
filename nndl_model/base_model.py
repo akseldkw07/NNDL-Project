@@ -59,7 +59,7 @@ class ModelPathDict(t.TypedDict):
 LOAD_LTRL = t.Literal["assert", "try", "fresh"]
 
 # Default training state
-DEFAULT_HYPER_PARAMS = HyperParamTotalDict(lr=1e-3, alpha=1, beta=1, gamma=0.1, patience=15, improvement_tol=1e-4)
+DEFAULT_HYPER_PARAMS = HyperParamTotalDict(lr=1e-3, alpha=1, beta=1, gamma=0.1, patience=25, improvement_tol=1e-4)
 DEFAULT_MODEL_STATE = ModelStateDict(best_acc_sub=0.0, best_acc_sup=0.0, best_loss=float("inf"), epochs_trained=0)
 
 
@@ -84,8 +84,9 @@ class BaseModel(nn.Module):
     _load_weights_act: LOAD_LTRL
     _post_init_done: bool = False
     model_state: ModelStateDict
+    _log: bool
 
-    def __init__(self, M: torch.Tensor, **hparams: t.Unpack[HyperParamDict]):
+    def __init__(self, M: torch.Tensor, log: bool = True, **hparams: t.Unpack[HyperParamDict]):
         super().__init__()
 
         # Initialize logging and model components
@@ -105,6 +106,7 @@ class BaseModel(nn.Module):
 
         # Initialize default training state (may be overridden by load)
         self.model_state = DEFAULT_MODEL_STATE.copy()
+        self._log = log
 
         self.to(self.device)
 
@@ -290,19 +292,21 @@ class BaseModel(nn.Module):
 
                 self.save_weights()
                 epochs_no_improve = 0
-                self.logger.info(f"Improved ({', '.join(improved_fields)}) - early-stop counter reset to 0.")
+                if self._log:
+                    self.logger.info(f"Improved ({', '.join(improved_fields)}) - early-stop counter reset to 0.")
             else:
                 epochs_no_improve += 1
 
             self.model_state["epochs_trained"] += 1
             sep = "  |  "
-            self.logger.info(
-                f"Epoch {self.model_state['epochs_trained']}/{last_epoch}{sep}"
-                f"Train Loss: {epoch_loss:.4f}{sep}"
-                f"Train Acc (sup/sub): {epoch_acc_sup:.4f}/{epoch_acc_sub:.4f}{sep}"
-                f"Val Loss: {val_loss:.4f}{sep}"
-                f"Val Acc (sup/sub): {val_acc_sup:.4f}/{val_acc_sub:.4f}\n"
-            )
+            if self._log:
+                self.logger.info(
+                    f"Epoch {self.model_state['epochs_trained']}/{last_epoch}{sep}"
+                    f"Train Loss: {epoch_loss:.4f}{sep}"
+                    f"Train Acc (sup/sub): {epoch_acc_sup:.4f}/{epoch_acc_sub:.4f}{sep}"
+                    f"Val Loss: {val_loss:.4f}{sep}"
+                    f"Val Acc (sup/sub): {val_acc_sup:.4f}/{val_acc_sub:.4f}\n"
+                )
 
             # Stop if patience exceeded
             if self.hparams["patience"] > 0 and epochs_no_improve >= self.hparams["patience"]:
@@ -382,9 +386,10 @@ class BaseModel(nn.Module):
             self.version = f"v{version_num:03d}"
             self.logger.warning(f"Incremented model version to {self.version}.")
 
-        self.logger.info(
-            f"Saving model weights to {self.root_dir}, view model summary at {self.model_paths['model_path']}"
-        )
+        if self._log:
+            self.logger.info(
+                f"Saving model weights to {self.root_dir}, view model summary at {self.model_paths['model_path']}"
+            )
 
         self.root_dir.mkdir(parents=True, exist_ok=True)
         torch.save(self.state_dict(), self.model_paths["weight_path"])
