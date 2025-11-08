@@ -7,8 +7,8 @@ from nndl_model.base_model import BaseModel, HyperParamDict
 
 
 class CNN_3_128_Test_Aksel(BaseModel):
-    def __init__(self, M: Tensor, feature_dim: int = 64, **hparams: t.Unpack[HyperParamDict]):
-        super().__init__(M=M, **hparams)
+    def __init__(self, M: Tensor, feature_dim: int = 64, log: bool = True, **hparams: t.Unpack[HyperParamDict]):
+        super().__init__(M=M, log=log, **hparams)
 
         self.model = nn.Sequential(
             nn.Conv2d(3, 32, 3, stride=2, padding=1),
