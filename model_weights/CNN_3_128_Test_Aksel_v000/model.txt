@@ -19,8 +19,8 @@ CNN_3_128_Test_Aksel(
              'gamma': 0.1,
              'improvement_tol': 0.0001,
              'lr': 0.001,
-             'patience': 15},
- 'state': {'best_acc_sub': 0.5151,
-           'best_acc_sup': 0.9507,
-           'best_loss': 1.797,
-           'epochs_trained': 55}}
+             'patience': 25},
+ 'state': {'best_acc_sub': 0.7281,
+           'best_acc_sup': 0.9809,
+           'best_loss': 0.964,
+           'epochs_trained': 279}}

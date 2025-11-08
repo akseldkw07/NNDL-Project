@@ -59,7 +59,7 @@ class ModelPathDict(t.TypedDict):
 LOAD_LTRL = t.Literal["assert", "try", "fresh"]
 
 # Default training state
-DEFAULT_HYPER_PARAMS = HyperParamTotalDict(lr=1e-3, alpha=1, beta=1, gamma=0.1, patience=15, improvement_tol=1e-4)
+DEFAULT_HYPER_PARAMS = HyperParamTotalDict(lr=1e-3, alpha=1, beta=1, gamma=0.1, patience=60, improvement_tol=1e-4)
 DEFAULT_MODEL_STATE = ModelStateDict(best_acc_sub=0.0, best_acc_sup=0.0, best_loss=float("inf"), epochs_trained=0)
 
 
