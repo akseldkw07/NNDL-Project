@@ -13,4 +13,4 @@ CNN_3_128_Test_Aksel(
   (head_sub): Linear(in_features=64, out_features=88, bias=True)
 )
 
-{'best_acc_sub': 0.5119236883942766, 'best_acc_sup': 0.9411764705882353, 'best_loss': 1.9088982195846607, 'epochs_trained': 48}
+{'best_acc_sub': 0.5135135135135135, 'best_acc_sup': 0.9475357710651828, 'best_loss': 1.83054162417383, 'epochs_trained': 51}
