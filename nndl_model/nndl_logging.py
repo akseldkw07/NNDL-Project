@@ -1,4 +1,4 @@
-# logging_setup.py
+# logging setup
 import sys, logging
 
 
