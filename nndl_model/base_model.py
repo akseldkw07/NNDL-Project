@@ -33,7 +33,7 @@ class HyperParamTotalDict(t.TypedDict, total=True):
     alpha: float
     beta: float
     gamma: float
-    # early stopping controls (optional)
+    # early stopping controls
     patience: int
     improvement_tol: float
 
@@ -275,7 +275,7 @@ class BaseModel(nn.Module):
 
             # Early stopping: check improvement
             improvements = self._improved(val_loss, val_acc_sub, val_acc_sup)
-            if any(improvements):
+            if any(improvements.values()):
                 # Update bests and save
                 improved_fields = []
                 if improvements["best_loss"]:
@@ -290,7 +290,7 @@ class BaseModel(nn.Module):
 
                 self.save_weights()
                 epochs_no_improve = 0
-                self.logger.info(f"Improved ({', '.join(improved_fields)}) — early-stop counter reset to 0.")
+                self.logger.info(f"Improved ({', '.join(improved_fields)}) - early-stop counter reset to 0.")
             else:
                 epochs_no_improve += 1
 
@@ -397,6 +397,10 @@ class BaseModel(nn.Module):
     def load_weights(self, load_weights: LOAD_LTRL = "try", override_load_hp: bool = False):
         """
         Load the model weights, summary, and training state from a file.
+
+        Args:
+            load_weights: Controls loading behavior - "assert" (must succeed), "try" (silent fail), or "fresh" (skip loading).
+            override_load_hp: If True, replace current hyperparameters with loaded values from the state file.
         """
         if load_weights == "assert":
             self._load_weights(override_load_hp)
@@ -406,6 +410,8 @@ class BaseModel(nn.Module):
             except Exception as ex:
                 self.logger.error(f"Failed to load state from {self.root_dir}: {ex}. Continuing with fresh weights.")
                 self.model_state = DEFAULT_MODEL_STATE.copy()
+                if override_load_hp:
+                    self.hparams = DEFAULT_HYPER_PARAMS.copy()
         elif load_weights == "fresh":
             self.model_state = DEFAULT_MODEL_STATE.copy()
         else:
