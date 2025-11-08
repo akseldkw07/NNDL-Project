@@ -5,6 +5,7 @@ import json
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import tqdm
 import wandb
 from torch.utils.data import DataLoader
 
@@ -211,12 +212,11 @@ class BaseModel(nn.Module):
             raise RuntimeError("post_init must be called before training the model.")
 
         device = self.device
-        self.model_state["epochs_trained"] + epochs
+        last_epoch = self.model_state["epochs_trained"] + epochs
 
         epochs_no_improve = 0
 
-        # for _ in tqdm.tqdm(range(epochs)):
-        for _ in range(epochs):
+        for _ in tqdm.tqdm(range(epochs)):
             self.train()
             running_loss = 0.0
             running_corrects_sup = 0
@@ -290,18 +290,19 @@ class BaseModel(nn.Module):
 
                 self.save_weights()
                 epochs_no_improve = 0
-                # self.logger.info(f"Improved ({', '.join(improved_fields)}) - early-stop counter reset to 0.")
+                self.logger.info(f"Improved ({', '.join(improved_fields)}) - early-stop counter reset to 0.")
             else:
                 epochs_no_improve += 1
 
             self.model_state["epochs_trained"] += 1
-            # self.logger.info(
-            #     f"Epoch {self.model_state['epochs_trained']}/{last_epoch}{sep}"
-            #     f"Train Loss: {epoch_loss:.4f}{sep}"
-            #     f"Train Acc (sup/sub): {epoch_acc_sup:.4f}/{epoch_acc_sub:.4f}{sep}"
-            #     f"Val Loss: {val_loss:.4f}{sep}"
-            #     f"Val Acc (sup/sub): {val_acc_sup:.4f}/{val_acc_sub:.4f}\n"
-            # )
+            sep = "  |  "
+            self.logger.info(
+                f"Epoch {self.model_state['epochs_trained']}/{last_epoch}{sep}"
+                f"Train Loss: {epoch_loss:.4f}{sep}"
+                f"Train Acc (sup/sub): {epoch_acc_sup:.4f}/{epoch_acc_sub:.4f}{sep}"
+                f"Val Loss: {val_loss:.4f}{sep}"
+                f"Val Acc (sup/sub): {val_acc_sup:.4f}/{val_acc_sub:.4f}\n"
+            )
 
             # Stop if patience exceeded
             if self.hparams["patience"] > 0 and epochs_no_improve >= self.hparams["patience"]:
@@ -381,9 +382,9 @@ class BaseModel(nn.Module):
             self.version = f"v{version_num:03d}"
             self.logger.warning(f"Incremented model version to {self.version}.")
 
-        # self.logger.info(
-        #     f"Saving model weights to {self.root_dir}, view model summary at {self.model_paths['model_path']}"
-        # )
+        self.logger.info(
+            f"Saving model weights to {self.root_dir}, view model summary at {self.model_paths['model_path']}"
+        )
 
         self.root_dir.mkdir(parents=True, exist_ok=True)
         torch.save(self.state_dict(), self.model_paths["weight_path"])
