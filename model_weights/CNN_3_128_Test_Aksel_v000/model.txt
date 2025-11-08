@@ -1,4 +1,5 @@
 Model: name='CNN_3_128_Test_Aksel_v000'
+
 CNN_3_128_Test_Aksel(
   (model): Sequential(
     (0): Conv2d(3, 32, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1))
@@ -13,4 +14,13 @@ CNN_3_128_Test_Aksel(
   (head_sub): Linear(in_features=64, out_features=88, bias=True)
 )
 
-{'best_acc_sub': 0.5135135135135135, 'best_acc_sup': 0.9475357710651828, 'best_loss': 1.83054162417383, 'epochs_trained': 51}
+{'hparams': {'alpha': 1,
+             'beta': 1,
+             'gamma': 0.1,
+             'improvement_tol': 0.0001,
+             'lr': 0.001,
+             'patience': 10},
+ 'state': {'best_acc_sub': 0.5135135135135135,
+           'best_acc_sup': 0.9475357710651828,
+           'best_loss': 1.83054162417383,
+           'epochs_trained': 51}}

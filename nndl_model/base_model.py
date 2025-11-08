@@ -1,4 +1,5 @@
 import pathlib
+import pprint
 import typing as t
 import json
 import torch
@@ -22,6 +23,9 @@ class HyperParamDict(t.TypedDict, total=False):
     alpha: float
     beta: float
     gamma: float
+    # early stopping controls (optional)
+    patience: int
+    improvement_tol: float
 
 
 class HyperParamTotalDict(t.TypedDict, total=True):
@@ -29,6 +33,9 @@ class HyperParamTotalDict(t.TypedDict, total=True):
     alpha: float
     beta: float
     gamma: float
+    # early stopping controls (optional)
+    patience: int
+    improvement_tol: float
 
 
 class ModelStateDict(t.TypedDict):
@@ -38,14 +45,22 @@ class ModelStateDict(t.TypedDict):
     epochs_trained: int
 
 
+class FullStateDict(t.TypedDict):
+    state: ModelStateDict
+    hparams: HyperParamTotalDict
+
+
 class ModelPathDict(t.TypedDict):
     model_path: pathlib.Path
     state_path: pathlib.Path
     weight_path: pathlib.Path
 
 
-DEFAULT_HYPER_PARAMS = HyperParamTotalDict(lr=1e-3, alpha=1, beta=1, gamma=0.1)
 LOAD_LTRL = t.Literal["assert", "try", "fresh"]
+
+# Default training state
+DEFAULT_HYPER_PARAMS = HyperParamTotalDict(lr=1e-3, alpha=1, beta=1, gamma=0.1, patience=15, improvement_tol=1e-4)
+DEFAULT_MODEL_STATE = ModelStateDict(best_acc_sub=0.0, best_acc_sup=0.0, best_loss=float("inf"), epochs_trained=0)
 
 
 class BaseModel(nn.Module):
@@ -63,10 +78,8 @@ class BaseModel(nn.Module):
     M: torch.Tensor  # this will be registered as buffer. This maps sub->super classes
     S: int
     K: int
-    lr: float
-    alpha: float
-    beta: float
-    gamma: float
+
+    hparams: HyperParamTotalDict
 
     _load_weights_act: LOAD_LTRL
     _post_init_done: bool = False
@@ -84,18 +97,18 @@ class BaseModel(nn.Module):
         # Register mapping as non-trainable buffer on the correct device
         self._M = M.to(self.device).float()
 
-        # Hyperparameters
-        hparams_req = DEFAULT_HYPER_PARAMS
-        hparams_req.update(hparams)
-
-        print(f"Hyperparams: {hparams_req}")
-        self.lr = hparams_req["lr"]
+        # Initialize default Hyperparameters (may be overridden by load)
+        hp = DEFAULT_HYPER_PARAMS.copy()
+        hp.update(hparams)
+        self.hparams = hp
         self.S, self.K = M.shape
-        self.alpha, self.beta, self.gamma = hparams_req["alpha"], hparams_req["beta"], hparams_req["gamma"]
+
+        # Initialize default training state (may be overridden by load)
+        self.model_state = DEFAULT_MODEL_STATE.copy()
 
         self.to(self.device)
 
-    def post_init(self, feature_dim: int, load_weights: LOAD_LTRL = "try"):
+    def post_init(self, feature_dim: int, load_weights: LOAD_LTRL = "try", override_load_hp: bool = False):
         """
         Specify actions that must be taken after the model architecture is defined.
 
@@ -108,13 +121,15 @@ class BaseModel(nn.Module):
         self._reset_optimizer()
 
         self._load_weights_act = load_weights
-        self.load_weights(load_weights)
+        self.load_weights(load_weights, override_load_hp)
 
         self._post_init_done = True
+        self.logger.info("Full State:")
+        pprint.pprint(self.FullStateDictDisplay)
 
     def _reset_optimizer(self) -> None:
         """(Re)create optimizer and scheduler now that parameters exist."""
-        self.optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
+        self.optimizer = torch.optim.Adam(self.parameters(), lr=self.hparams["lr"])
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=7, gamma=0.1)
 
     def _configure_hierarchy(self, feature_dim: int):
@@ -157,7 +172,7 @@ class BaseModel(nn.Module):
 
         kl = F.kl_div(log_p_sup, log_tilde_p_sup, reduction="batchmean", log_target=True)
 
-        return self.alpha * loss_sup + self.beta * loss_sub + self.gamma * kl
+        return self.hparams["alpha"] * loss_sup + self.hparams["beta"] * loss_sub + self.hparams["gamma"] * kl
 
     def get_loss(self, outputs: tuple[torch.Tensor, torch.Tensor], labels: TorchDict | torch.Tensor) -> torch.Tensor:
         device = self.device
@@ -175,23 +190,33 @@ class BaseModel(nn.Module):
         else:
             raise ValueError("Outputs and labels format do not match for loss computation.")
 
+    def _improved(self, val_loss: float, val_acc_sub: float, val_acc_sup: float):
+        """Return True if any metric improves by `improvement_tol`.
+        - loss improves if it DEcreases by tol
+        - accuracies improve if they INcrease by tol
+        """
+        min_improvement = self.hparams["improvement_tol"]
+        return {
+            "best_loss": val_loss < self.model_state["best_loss"] - min_improvement,
+            "best_acc_sub": val_acc_sub > self.model_state["best_acc_sub"] + min_improvement,
+            "best_acc_sup": val_acc_sup > self.model_state["best_acc_sup"] + min_improvement,
+        }
+
     def train_model(self, train_loader: DataLoader, val_loader: DataLoader, epochs: int = 10) -> None:
         """
         Train the model using the provided data loaders and optimizer.
-        Logs training and validation metrics to wandb.
-
-        Args:
-            train_loader (DataLoader): DataLoader for training data.
-            val_loader (DataLoader): DataLoader for validation data.
-            epochs (int): Number of epochs to train.
-
+        Implements early stopping: if neither val_loss nor val accuracies improve by
+        `improvement_tol` for `patience` consecutive epochs, stop training.
         """
         if not self._post_init_done:
             raise RuntimeError("post_init must be called before training the model.")
 
         device = self.device
         last_epoch = self.model_state["epochs_trained"] + epochs
-        for epoch in tqdm.tqdm(range(epochs)):
+
+        epochs_no_improve = 0
+
+        for _ in tqdm.tqdm(range(epochs)):
             self.train()
             running_loss = 0.0
             running_corrects_sup = 0
@@ -212,7 +237,7 @@ class BaseModel(nn.Module):
 
                 loss = self.get_loss(outputs, labels)
                 loss.backward()
-                self.optimizer.step()  # TODO gradient clipping? Residual connections?
+                self.optimizer.step()
 
                 running_loss += loss.item() * inputs.size(0)
 
@@ -239,7 +264,6 @@ class BaseModel(nn.Module):
 
             wandb.log(
                 {
-                    # "Epoch": self.model_state["epochs_trained"],
                     "Train Loss": epoch_loss,
                     "Validation Loss": val_loss,
                     "Train Accuracy (super)": epoch_acc_sup,
@@ -249,22 +273,30 @@ class BaseModel(nn.Module):
                 }
             )
 
-            if val_loss < self.model_state["best_loss"]:
-                print(
-                    f"New best model found at epoch {self.model_state['epochs_trained'] }!. Old (val) loss: {self.model_state['best_loss']:.4f}, New (val) loss: {val_loss:.4f}"
-                )
-                self.model_state.update(
-                    {
-                        "best_loss": val_loss,
-                        "best_acc_sub": val_acc_sub,
-                        "best_acc_sup": val_acc_sup,
-                    }
-                )
+            # Early stopping: check improvement
+            improvements = self._improved(val_loss, val_acc_sub, val_acc_sup)
+            if any(improvements):
+                # Update bests and save
+                improved_fields = []
+                if improvements["best_loss"]:
+                    self.model_state["best_loss"] = val_loss
+                    improved_fields.append("loss")
+                if improvements["best_acc_sub"]:
+                    self.model_state["best_acc_sub"] = val_acc_sub
+                    improved_fields.append("acc_sub")
+                if improvements["best_acc_sup"]:
+                    self.model_state["best_acc_sup"] = val_acc_sup
+                    improved_fields.append("acc_sup")
+
                 self.save_weights()
+                epochs_no_improve = 0
+                self.logger.info(f"Improved ({', '.join(improved_fields)}) — early-stop counter reset to 0.")
+            else:
+                epochs_no_improve += 1
 
             self.model_state["epochs_trained"] += 1
             sep = "  |  "
-            print(
+            self.logger.info(
                 f"Epoch {self.model_state['epochs_trained']}/{last_epoch}{sep}"
                 f"Train Loss: {epoch_loss:.4f}{sep}"
                 f"Train Acc (sup/sub): {epoch_acc_sup:.4f}/{epoch_acc_sub:.4f}{sep}"
@@ -272,12 +304,17 @@ class BaseModel(nn.Module):
                 f"Val Acc (sup/sub): {val_acc_sup:.4f}/{val_acc_sub:.4f}\n"
             )
 
+            # Stop if patience exceeded
+            if self.hparams["patience"] > 0 and epochs_no_improve >= self.hparams["patience"]:
+                self.logger.warning(
+                    f"Early stopping activated: no improvement for {self.hparams['patience']} consecutive epochs."
+                )
+                break
+
     def evaluate(self, val_loader: DataLoader) -> tuple[float, float, float]:
         """
         Evaluate the model on a validation set.
 
-        Args:
-            val_loader (DataLoader): DataLoader for validation data.
         Returns:
             tuple: (validation loss, validation accuracy (subclass), validation accuracy (superclass))
         """
@@ -339,57 +376,53 @@ class BaseModel(nn.Module):
     def save_weights(self, increment_version: bool = False):
         """
         Save the model weights, summary, and training state to a file.
-
-        Args:
-            path (str): File path to save the weights.
         """
         if increment_version:
             version_num = int(self.version.strip("v")) + 1
             self.version = f"v{version_num:03d}"
             self.logger.warning(f"Incremented model version to {self.version}.")
 
-        print(f"Saving model weights to {self.root_dir}, view model summary at {self.model_paths['model_path']}")
+        self.logger.info(
+            f"Saving model weights to {self.root_dir}, view model summary at {self.model_paths['model_path']}"
+        )
 
         self.root_dir.mkdir(parents=True, exist_ok=True)
         torch.save(self.state_dict(), self.model_paths["weight_path"])
         with open(self.model_paths["model_path"], "w", encoding="utf-8") as f:
-            f.write(self.summary())
+            f.write(self._summary())
 
         with open(self.model_paths["state_path"], "w", encoding="utf-8") as f:
-            json.dump(self.model_state, f)
+            json.dump(self.FullStateDict, f)
 
-    def load_weights(self, load_weights: LOAD_LTRL = "try"):
+    def load_weights(self, load_weights: LOAD_LTRL = "try", override_load_hp: bool = False):
         """
         Load the model weights, summary, and training state from a file.
-
-        Args:
-            path (str): File path from which to load weights.
-            map_location (torch.device or str, optional): Device mapping for loading.
         """
         if load_weights == "assert":
-            self._load_weights()
+            self._load_weights(override_load_hp)
         elif load_weights == "try":
             try:
-                self._load_weights()
+                self._load_weights(override_load_hp)
             except Exception as ex:
-                print(f"Failed to load state from {self.root_dir}: {ex}. Continuing with fresh weights.")
+                self.logger.error(f"Failed to load state from {self.root_dir}: {ex}. Continuing with fresh weights.")
+                self.model_state = DEFAULT_MODEL_STATE.copy()
         elif load_weights == "fresh":
-            pass
+            self.model_state = DEFAULT_MODEL_STATE.copy()
         else:
             raise ValueError("Invalid load_weights value.")
 
-    def _load_weights(self):
+    def _load_weights(self, override_load_hp):
         """
         Attempt to load model weights and state from specified path.
-
-        This includes weights, best validation loss, best accuracies, and epochs trained.
         """
         self.load_state_dict(torch.load(self.model_paths["weight_path"], map_location=self.device))
 
         with open(self.model_paths["state_path"], encoding="utf-8") as f:
-            state: ModelStateDict = json.load(f)
+            full_state: FullStateDict = json.load(f)
 
-        self.model_state = state
+        self.model_state = full_state["state"]
+        if override_load_hp:
+            self.hparams = full_state["hparams"]
         self.logger.info(f"Loaded model weights and state from {self.root_dir}.")
 
     # NAMING
@@ -403,15 +436,29 @@ class BaseModel(nn.Module):
             return f"{cls.__name__}_{version}"
         return cls.__name__
 
-    def summary(self):
+    def _summary(self):
         """
-        Returns a string summarizing training progress and best metrics.
+        Prints a string summarizing training progress and best metrics.
         """
         name = self.name()
         model = self.__str__()
-        training_summary = self.model_state.__str__()
-        return f"Model: {name=}\n{model}\n\n{training_summary}\n"
+        return f"Model: {name=}\n\n{model}\n\n{pprint.pformat(self.FullStateDictDisplay)}\n"
+
+    def summary(self):
+        print(self._summary())
 
     @property
     def best_val_loss(self):
         return self.model_state
+
+    @property
+    def FullStateDict(self):
+        return FullStateDict({"state": self.model_state, "hparams": self.hparams})
+
+    @property
+    def FullStateDictDisplay(self):
+        ret = self.FullStateDict.copy()
+        ret["state"]["best_acc_sub"] = round(ret["state"]["best_acc_sub"], 4)
+        ret["state"]["best_acc_sup"] = round(ret["state"]["best_acc_sup"], 4)
+        ret["state"]["best_loss"] = round(ret["state"]["best_loss"], 3)
+        return ret

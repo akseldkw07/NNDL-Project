@@ -19,4 +19,4 @@ class CNN_3_128_Test_Aksel(BaseModel):
             nn.Flatten(),  # -> [B, 64]
         )
 
-        self.post_init(feature_dim=feature_dim)
+        self.post_init(feature_dim, "try", False)

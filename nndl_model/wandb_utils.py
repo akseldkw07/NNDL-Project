@@ -20,7 +20,7 @@ def start_wandb_run(
     group = model.name()
     run_name = f"{group}__{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     wandb_dir = os.getenv("WANDB_OUTPUT_DIR") or ROOT_DIR / "wandb_logs"
-    config = {"model_summary": model.summary()} if config is None else config
+    config = {"model_summary": model._summary()} if config is None else config
 
     run = wandb.init(
         entity=entity,
