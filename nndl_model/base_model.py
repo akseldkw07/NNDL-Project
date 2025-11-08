@@ -1,6 +1,6 @@
 import pathlib
 import typing as t
-
+import json
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -31,72 +31,93 @@ class HyperParamTotalDict(t.TypedDict, total=True):
     gamma: float
 
 
+class ModelStateDict(t.TypedDict):
+    best_acc_sub: float
+    best_acc_sup: float
+    best_loss: float
+    epochs_trained: int
+
+
+class ModelPathDict(t.TypedDict):
+    model_path: pathlib.Path
+    state_path: pathlib.Path
+    weight_path: pathlib.Path
+
+
 DEFAULT_HYPER_PARAMS = HyperParamTotalDict(lr=1e-3, alpha=1, beta=1, gamma=0.1)
+LOAD_LTRL = t.Literal["assert", "try", "fresh"]
 
 
 class BaseModel(nn.Module):
-    """
-    TODO
-    move versioning to class attribute
-    define __repr__ method
-    """
 
     version: str = "v000"
-    lr: float
-    best_loss: float
-    best_acc_sub: float
-    best_acc_sup: float
-    epochs_trained: int
     model: nn.Module  # nn.Sequential or other nn.Module
-    optimizer: torch.optim.Optimizer
-    scheduler: torch.optim.lr_scheduler.LRScheduler
+    optimizer: torch.optim.Optimizer  # NOTE: NOT SET in __init__
+    scheduler: torch.optim.lr_scheduler.LRScheduler  # NOTE: NOT SET in __init__
     device: t.Literal["cuda", "mps", "xpu", "cpu"]  # DEVICE_TORCH_STR
-    path: pathlib.Path
     criterion: nn.Module
 
-    head_super: nn.Module
-    head_sub: nn.Module
+    head_super: nn.Module  # NOTE: NOT SET in __init__
+    head_sub: nn.Module  # NOTE: NOT SET in __init__
     _M: torch.Tensor  # [S, K] mapping buffer
+    M: torch.Tensor  # this will be registered as buffer. This maps sub->super classes
     S: int
     K: int
+    lr: float
     alpha: float
     beta: float
     gamma: float
 
+    _load_weights_act: LOAD_LTRL
+    _post_init_done: bool = False
+    model_state: ModelStateDict
+
     def __init__(self, M: torch.Tensor, **hparams: t.Unpack[HyperParamDict]):
         super().__init__()
+
+        # Initialize logging and model components
+        self.logger = logging.getLogger(self.name())
+        self.model = nn.Sequential()
+        self.device = DEVICE_TORCH_STR
+        self.criterion = nn.CrossEntropyLoss()
+
+        # Register mapping as non-trainable buffer on the correct device
+        self._M = M.to(self.device).float()
+
+        # Hyperparameters
         hparams_req = DEFAULT_HYPER_PARAMS
         hparams_req.update(hparams)
 
         print(f"Hyperparams: {hparams_req}")
         self.lr = hparams_req["lr"]
-        self.best_loss = float("inf")
-        self.best_acc_sub = 0.0
-        self.epochs_trained = 0
-        self.model = nn.Sequential()
-        # self.optimizer # NOTE: NOT SET HERE
-        # self.scheduler # NOTE: NOT SET HERE
-        self.device = DEVICE_TORCH_STR
-        self.path = MODEL_WEIGHT_DIR / f"{self.name()}"
-        self.criterion = nn.CrossEntropyLoss()
-
-        # self.head_super = None# NOTE: NOT SET HERE
-        # self.head_sub = None # NOTE: NOT SET HERE
-
-        # Register mapping as non-trainable buffer on the correct device
-        self._M = M.to(self.device).float()
         self.S, self.K = M.shape
         self.alpha, self.beta, self.gamma = hparams_req["alpha"], hparams_req["beta"], hparams_req["gamma"]
 
         self.to(self.device)
-        self.logger = logging.getLogger(__name__)
 
-    def reset_optimizer(self) -> None:
+    def post_init(self, feature_dim: int, load_weights: LOAD_LTRL = "try"):
+        """
+        Specify actions that must be taken after the model architecture is defined.
+
+        1) Configuring the hierarchy
+        2) Resetting the optimizer
+        3) Loading saved weights
+        4) Restoring model performance
+        """
+        self._configure_hierarchy(feature_dim=feature_dim)
+        self._reset_optimizer()
+
+        self._load_weights_act = load_weights
+        self.load_weights(load_weights)
+
+        self._post_init_done = True
+
+    def _reset_optimizer(self) -> None:
         """(Re)create optimizer and scheduler now that parameters exist."""
         self.optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=7, gamma=0.1)
 
-    def configure_hierarchy(self, feature_dim: int):
+    def _configure_hierarchy(self, feature_dim: int):
         """
         Turn on hierarchical classification.
         - feature_dim: size of features emitted by self.model(x)
@@ -120,21 +141,22 @@ class BaseModel(nn.Module):
 
     def _hierarchical_loss(
         self, logits_sup: torch.Tensor, logits_sub: torch.Tensor, y_sup: torch.Tensor, y_sub: torch.Tensor
-    ):
+    ) -> torch.Tensor:
+        # Cross-entropy wants raw logits (no softmax)
         loss_sup = F.cross_entropy(logits_sup, y_sup)
         loss_sub = F.cross_entropy(logits_sub, y_sub)
 
-        # Probabilities
-        p_sup = F.softmax(logits_sup, dim=1)
-        p_sub = F.softmax(logits_sub, dim=1)
+        # KL(tilde || p_sup), computed in log-prob space for stability
+        log_p_sup = F.log_softmax(logits_sup, dim=1)  # [B, S]
 
-        # Aggregate subclass probabilities to super classes: tilde_p_sup = normalize(M @ p_sub)
+        p_sub = F.softmax(logits_sub, dim=1)  # [B, K]
         eps = 1e-8
         tilde_p_sup = (self.M @ p_sub.T).T  # [B, S]
         tilde_p_sup = tilde_p_sup / tilde_p_sup.sum(dim=1, keepdim=True).clamp_min(eps)
+        log_tilde_p_sup = torch.log(tilde_p_sup.clamp_min(eps))
 
-        # KL(tilde || p_sup) with numerical stability: avoid log(0) by clamping
-        kl = F.kl_div(p_sup, tilde_p_sup.log(), reduction="batchmean", log_target=True)
+        kl = F.kl_div(log_p_sup, log_tilde_p_sup, reduction="batchmean", log_target=True)
+
         return self.alpha * loss_sup + self.beta * loss_sub + self.gamma * kl
 
     def get_loss(self, outputs: tuple[torch.Tensor, torch.Tensor], labels: TorchDict | torch.Tensor) -> torch.Tensor:
@@ -164,7 +186,11 @@ class BaseModel(nn.Module):
             epochs (int): Number of epochs to train.
 
         """
+        if not self._post_init_done:
+            raise RuntimeError("post_init must be called before training the model.")
+
         device = self.device
+        last_epoch = self.model_state["epochs_trained"] + epochs
         for epoch in tqdm.tqdm(range(epochs)):
             self.train()
             running_loss = 0.0
@@ -213,7 +239,7 @@ class BaseModel(nn.Module):
 
             wandb.log(
                 {
-                    "Epoch": self.epochs_trained + epoch + 1,
+                    # "Epoch": self.model_state["epochs_trained"],
                     "Train Loss": epoch_loss,
                     "Validation Loss": val_loss,
                     "Train Accuracy (super)": epoch_acc_sup,
@@ -223,24 +249,28 @@ class BaseModel(nn.Module):
                 }
             )
 
-            if val_loss < self.best_loss:
+            if val_loss < self.model_state["best_loss"]:
                 print(
-                    f"New best model found at epoch {self.epochs_trained + epoch + 1}!. Old loss: {self.best_loss:.4f}, New loss: {val_loss:.4f}"
+                    f"New best model found at epoch {self.model_state['epochs_trained'] }!. Old (val) loss: {self.model_state['best_loss']:.4f}, New (val) loss: {val_loss:.4f}"
                 )
-                self.best_loss = val_loss
-                self.best_acc_sub = val_acc_sub
-                self.best_acc_sup = val_acc_sup
+                self.model_state.update(
+                    {
+                        "best_loss": val_loss,
+                        "best_acc_sub": val_acc_sub,
+                        "best_acc_sup": val_acc_sup,
+                    }
+                )
                 self.save_weights()
 
+            self.model_state["epochs_trained"] += 1
+            sep = "  |  "
             print(
-                f"Epoch {self.epochs_trained + epoch + 1}/{self.epochs_trained + epochs} "
-                f"Train Loss: {epoch_loss:.4f} "
-                f"Train Acc (sup/sub): {epoch_acc_sup:.4f}/{epoch_acc_sub:.4f} \n"
-                f"Val Loss: {val_loss:.4f} "
-                f"Val Acc (sup/sub): {val_acc_sup:.4f}/{val_acc_sub:.4f}"
+                f"Epoch {self.model_state['epochs_trained']}/{last_epoch}{sep}"
+                f"Train Loss: {epoch_loss:.4f}{sep}"
+                f"Train Acc (sup/sub): {epoch_acc_sup:.4f}/{epoch_acc_sub:.4f}{sep}"
+                f"Val Loss: {val_loss:.4f}{sep}"
+                f"Val Acc (sup/sub): {val_acc_sup:.4f}/{val_acc_sub:.4f}\n"
             )
-
-        self.epochs_trained += epochs
 
     def evaluate(self, val_loader: DataLoader) -> tuple[float, float, float]:
         """
@@ -294,28 +324,73 @@ class BaseModel(nn.Module):
         return val_loss, val_acc_sub, val_acc_sup
 
     # SAVING
-    def save_weights(self):
+    @property
+    def root_dir(self) -> pathlib.Path:
+        return MODEL_WEIGHT_DIR / f"{self.name()}"
+
+    @property
+    def model_paths(self) -> ModelPathDict:
+        return {
+            "weight_path": self.root_dir / "weights.pt",
+            "model_path": self.root_dir / "model.txt",
+            "state_path": self.root_dir / "state.json",
+        }
+
+    def save_weights(self, increment_version: bool = False):
         """
-        Save the model weights to a file.
+        Save the model weights, summary, and training state to a file.
 
         Args:
             path (str): File path to save the weights.
         """
-        self.path.mkdir(parents=True, exist_ok=True)
-        torch.save(self.state_dict(), self.path / "weights.pt")
+        if increment_version:
+            version_num = int(self.version.strip("v")) + 1
+            self.version = f"v{version_num:03d}"
+            self.logger.warning(f"Incremented model version to {self.version}.")
 
-        with open(self.path / "model.txt", "w", encoding="utf-8") as f:
+        print(f"Saving model weights to {self.root_dir}, view model summary at {self.model_paths['model_path']}")
+
+        self.root_dir.mkdir(parents=True, exist_ok=True)
+        torch.save(self.state_dict(), self.model_paths["weight_path"])
+        with open(self.model_paths["model_path"], "w", encoding="utf-8") as f:
             f.write(self.summary())
 
-    def load_weights(self):
+        with open(self.model_paths["state_path"], "w", encoding="utf-8") as f:
+            json.dump(self.model_state, f)
+
+    def load_weights(self, load_weights: LOAD_LTRL = "try"):
         """
-        Load model weights from a file.
+        Load the model weights, summary, and training state from a file.
 
         Args:
             path (str): File path from which to load weights.
             map_location (torch.device or str, optional): Device mapping for loading.
         """
-        self.load_state_dict(torch.load(self.path, map_location=self.device))
+        if load_weights == "assert":
+            self._load_weights()
+        elif load_weights == "try":
+            try:
+                self._load_weights()
+            except Exception as ex:
+                print(f"Failed to load state from {self.root_dir}: {ex}. Continuing with fresh weights.")
+        elif load_weights == "fresh":
+            pass
+        else:
+            raise ValueError("Invalid load_weights value.")
+
+    def _load_weights(self):
+        """
+        Attempt to load model weights and state from specified path.
+
+        This includes weights, best validation loss, best accuracies, and epochs trained.
+        """
+        self.load_state_dict(torch.load(self.model_paths["weight_path"], map_location=self.device))
+
+        with open(self.model_paths["state_path"], encoding="utf-8") as f:
+            state: ModelStateDict = json.load(f)
+
+        self.model_state = state
+        self.logger.info(f"Loaded model weights and state from {self.root_dir}.")
 
     # NAMING
     @classmethod
@@ -334,9 +409,9 @@ class BaseModel(nn.Module):
         """
         name = self.name()
         model = self.__str__()
-        training_summary = (
-            f"Epochs trained: {self.epochs_trained}     "
-            f"Best Validation Loss: {self.best_loss:.4f}     "
-            f"Best Validation Accuracy: {self.best_acc_sub:.4f}"
-        )
-        return f"Model: {name=}\n{model}\n\n{training_summary}"
+        training_summary = self.model_state.__str__()
+        return f"Model: {name=}\n{model}\n\n{training_summary}\n"
+
+    @property
+    def best_val_loss(self):
+        return self.model_state

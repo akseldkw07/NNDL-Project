@@ -1,8 +1,9 @@
+import typing as t
+
 import torch.nn as nn
 from torch import Tensor
 
-from nndl_model.base import BaseModel, HyperParamDict
-import typing as t
+from nndl_model.base_model import BaseModel, HyperParamDict
 
 
 class CNN_3_128_Test_Aksel(BaseModel):
@@ -18,5 +19,4 @@ class CNN_3_128_Test_Aksel(BaseModel):
             nn.Flatten(),  # -> [B, 64]
         )
 
-        self.configure_hierarchy(feature_dim=feature_dim)
-        self.reset_optimizer()
+        self.post_init(feature_dim=feature_dim)

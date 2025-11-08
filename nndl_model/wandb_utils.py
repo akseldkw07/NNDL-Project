@@ -1,24 +1,23 @@
-from datetime import datetime
 import os
+import typing as t
+from datetime import datetime
+
 import wandb
 
-import typing as t
-
-from nndl_model.base import BaseModel
+from nndl_model.base_model import BaseModel
 from nndl_model.constants import ROOT_DIR
 
 
 def start_wandb_run(
     model: BaseModel,  # your nn.Module with BaseModel.name()
     entity: str = "nndl-project-F25",  # your team/org slug
-    project: str | None = None,  # the shared project
+    project: str | None = "Multihead-Classification-Competition",  # the shared project
     mode: t.Literal["online", "offline", "disabled"] = "online",  # "online" | "offline" | "disabled"
     job_type: str = "train",  # "train" | "eval" | etc.
     tags: list[str] | None = None,
     config: dict[str, t.Any] | str | None = None,
 ):
-    project = project or model.name(False)
-    group = model.version
+    group = model.name()
     run_name = f"{group}__{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     wandb_dir = os.getenv("WANDB_OUTPUT_DIR") or ROOT_DIR / "wandb_logs"
     config = {"model_summary": model.summary()} if config is None else config
