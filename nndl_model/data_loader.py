@@ -75,7 +75,7 @@ class HierImageDataset(Dataset):
 
         y_sup = int(row[self.col_super])
         y_sub = int(row[self.col_sub])
-        labels = {"super": torch.tensor(y_sup, dtype=torch.long), "sub": torch.tensor(y_sub, dtype=torch.long)}
+        labels = {"sub": torch.tensor(y_sub, dtype=torch.long), "super": torch.tensor(y_sup, dtype=torch.long)}
         return x, labels
 
 

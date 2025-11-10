@@ -165,8 +165,8 @@ class BaseModel(nn.Module):
 
         # KL(tilde || p_sup), computed in log-prob space for stability
         log_p_sup = F.log_softmax(logits_sup, dim=1)  # [B, S]
-
         p_sub = F.softmax(logits_sub, dim=1)  # [B, K]
+
         eps = 1e-8
         tilde_p_sup = (self.M @ p_sub.T).T  # [B, S]
         tilde_p_sup = tilde_p_sup / tilde_p_sup.sum(dim=1, keepdim=True).clamp_min(eps)
@@ -464,7 +464,7 @@ class BaseModel(nn.Module):
 
     @property
     def FullStateDict(self):
-        return FullStateDict({"state": self.model_state, "hparams": self.hparams})
+        return FullStateDict({"hparams": self.hparams, "state": self.model_state})
 
     @property
     def FullStateDictDisplay(self):
