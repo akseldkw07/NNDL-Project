@@ -6,7 +6,7 @@ import torch.optim as optim
 from constants import DEVICE as device
 from models import accuracy_from_logits, sub_probs_to_super_probs
 
-from .constants import *
+from constants import *
 
 # functions for training
 

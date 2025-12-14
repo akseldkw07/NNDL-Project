@@ -651,7 +651,7 @@ def novelty_dashboard(
                     "Split": "pseudo_novel",
                     "Head": "sub",
                     "Metric": "Pseudo-novel mapped to seen",
-                    "Meaning": "Held-out subclasses wrongly mapped to some seen subclass",
+                    "Meaning": "Held-out subclasses wrongly mapped to seen subclass",
                     "Value": float(pseudo_metrics["pseudo_novel_sub_false_seen"]),
                 }
             )
@@ -713,6 +713,13 @@ def novelty_dashboard(
             "Metric": "DATA_AUGMENT",
             "Meaning": "Whether data augmentation is enabled for training",
             "Value": str(bool(DATA_AUGMENT)),
+        },
+        {
+            "Split": "config",
+            "Head": "-",
+            "Metric": "SUB_HEAD_TYPE",
+            "Meaning": "Type of subclass head (linear or cosine)",
+            "Value": str(SUB_HEAD_TYPE),
         },
     ]
 

@@ -3,13 +3,57 @@ import torch
 import torch.nn as nn
 from resnet_pretrain import build_resnet_backbone
 
+import torch.nn.functional as F
+
+
+class CosineClassifier(nn.Module):
+    """
+    Cosine-similarity classifier (normalized linear head).
+    logits = scale * cos(theta), where cos(theta)=<normalize(x), normalize(W)>.
+    """
+
+    def __init__(self, in_features: int, out_features: int, scale: float = 30.0, learn_scale: bool = True):
+        super().__init__()
+        self.weight = nn.Parameter(torch.empty(out_features, in_features))
+        nn.init.xavier_uniform_(self.weight)
+
+        if learn_scale:
+            self.scale = nn.Parameter(torch.tensor(float(scale)))
+        else:
+            self.register_buffer("scale", torch.tensor(float(scale)))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = F.normalize(x, p=2, dim=1)  # [B, D]
+        w = F.normalize(self.weight, p=2, dim=1)  # [C, D]
+        logits = x @ w.t()  # [B, C]
+        return logits * self.scale
+
 
 class SharedBackboneTwoHeads(nn.Module):
-    def __init__(self, num_super, num_sub, backbone: str = "resnet18"):
+    def __init__(
+        self,
+        num_super: int,
+        num_sub: int,
+        backbone: str = "resnet50",
+        sub_head_type: str = "cosine",  # "linear" or "cosine"
+        cosine_scale: float = 30.0,
+        learn_scale: bool = True,
+    ):
         super().__init__()
         self.backbone, feat_dim = build_resnet_backbone(backbone)
         self.super_head = nn.Linear(feat_dim, num_super)
-        self.sub_head = nn.Linear(feat_dim, num_sub)
+
+        if sub_head_type == "cosine":
+            self.sub_head = CosineClassifier(
+                in_features=feat_dim,
+                out_features=num_sub,
+                scale=cosine_scale,
+                learn_scale=learn_scale,
+            )
+        elif sub_head_type == "linear":
+            self.sub_head = nn.Linear(feat_dim, num_sub)
+        else:
+            raise ValueError(f"Unknown sub_head_type: {sub_head_type}")
 
     def forward(self, x):
         feats = self.backbone(x)

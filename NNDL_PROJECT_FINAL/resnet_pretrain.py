@@ -4,6 +4,9 @@
 
 import torch.nn as nn
 from torchvision import models
+import os
+from torch.utils.data import Dataset
+from PIL import Image
 
 
 def build_resnet_backbone(backbone: str):
@@ -16,5 +19,29 @@ def build_resnet_backbone(backbone: str):
         raise ValueError(f"Unknown BACKBONE: {backbone}")
     # Remove the final classification layer
     in_features = base.fc.in_features
-    base.fc = nn.Identity()
+    base.fc = nn.Identity()  # type: ignore[assignment]
     return base, in_features
+
+
+# Test dataset (for leaderboard predictions)
+
+
+class BirdDogReptileTestDataset(Dataset):
+    def __init__(self, img_dir, transform=None):
+        self.img_dir = img_dir
+        self.transform = transform
+        # assumes images are named 0.jpg, 1.jpg, ..., N-1.jpg
+        self.filenames = sorted(os.listdir(img_dir), key=lambda x: int(os.path.splitext(x)[0]))
+
+    def __len__(self):
+        return len(self.filenames)
+
+    def __getitem__(self, idx):
+        img_name = self.filenames[idx]
+        img_path = os.path.join(self.img_dir, img_name)
+
+        image = Image.open(img_path).convert("RGB")
+        if self.transform:
+            image = self.transform(image)
+
+        return image, img_name

@@ -90,9 +90,11 @@ FINE_TUNE_MODE = "full"  # or "frozen"
 TAU_SUPER = (
     0.99  # NOTE: per calibration with validation data. if max superclass prob < TAU_SUPER -> predict novel superclass
 )
-TAU_SUB = 0.85  # NOTE: per calibration with validation data. if max subclass prob < TAU_SUB  -> predict novel subclass
+TAU_SUB = 0.65  # NOTE: per calibration with validation data. if max subclass prob < TAU_SUB  -> predict novel subclass
+SUB_HEAD_TYPE = "cosine"  # "linear" or "cosine"
+
 
 ########### MAKE SURE USE_PSEDUO_NOVEL IS FALSE BEFORE LEADERBOARD SUBMISSION ##################################################
-USE_PSEUDO_NOVEL = False  # to validate on held-out subclasses from training. Used to fine-tune TAU_SUB
+USE_PSEUDO_NOVEL = True  # to validate on held-out subclasses from training. Used to fine-tune TAU_SUB
 PSEUDO_NOVEL_FRACTION = 0.15
 PSEUDO_NOVEL_SEED = 123
