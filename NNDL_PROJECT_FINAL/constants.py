@@ -34,8 +34,8 @@ DEVICE = torch.device(DEVICE_TORCH_STR)
 
 # IMAGES
 DEF_IMAGE_SIZE = 64  # 64x64 images
-MEAN_IMG = (0.4170, 0.3801, 0.3132)  # computed over training set - notebooks/Exploration.ipynb
-STD_IMG = (0.2131, 0.2014, 0.1924)  # computed over training set - notebooks/Exploration.ipynb
+MEAN_IMG = [0.485, 0.456, 0.406]
+STD_IMG = [0.229, 0.224, 0.225]  # computed over training set - notebooks/Exploration.ipynb
 
 # =============================================================
 # Christian params
@@ -84,7 +84,7 @@ CIFAR_NOVEL_CSV_PATH = os.path.join(LOCAL_DATA_ROOT, "cifar_novel_data.csv")
 # Fine-tuning mode for ResNet backbone
 # "full"   = train all layers (what you're currently doing)
 # "frozen" = freeze backbone, train only the heads on top
-FINE_TUNE_MODE = "full"  # or "frozen"
+FINE_TUNE_MODE = "frozen"  # or "frozen"
 
 # Initial novelty thresholds (starting points, will tune further)
 TAU_SUPER = (
@@ -95,7 +95,7 @@ SUB_HEAD_TYPE = "cosine"  # "linear" or "cosine"
 ALPHA_SUPER_CONSISTENCY = 0.2
 
 ########### MAKE SURE USE_PSEDUO_NOVEL IS FALSE BEFORE LEADERBOARD SUBMISSION ##################################################
-USE_PSEUDO_NOVEL = False  # to validate on held-out subclasses from training. Used to fine-tune TAU_SUB
+USE_PSEUDO_NOVEL = True  # to validate on held-out subclasses from training. Used to fine-tune TAU_SUB
 PSEUDO_NOVEL_FRACTION = 0.15
 PSEUDO_NOVEL_SEED = 123
 
