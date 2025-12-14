@@ -90,7 +90,7 @@ FINE_TUNE_MODE = "full"  # or "frozen"
 TAU_SUPER = (
     0.99  # NOTE: per calibration with validation data. if max superclass prob < TAU_SUPER -> predict novel superclass
 )
-TAU_SUB = 0.65  # NOTE: per calibration with validation data. if max subclass prob < TAU_SUB  -> predict novel subclass
+TAU_SUB = 0.73  # NOTE: per calibration with validation data. if max subclass prob < TAU_SUB  -> predict novel subclass
 SUB_HEAD_TYPE = "cosine"  # "linear" or "cosine"
 
 

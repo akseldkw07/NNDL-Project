@@ -43,12 +43,17 @@ class SharedBackboneTwoHeads(nn.Module):
         self.super_head = nn.Linear(feat_dim, num_super)
 
         if sub_head_type == "cosine":
-            self.sub_head = CosineClassifier(
-                in_features=feat_dim,
-                out_features=num_sub,
-                scale=cosine_scale,
-                learn_scale=learn_scale,
+            sub_head = nn.Sequential(
+                CosineClassifier(
+                    in_features=feat_dim,
+                    out_features=(out := num_sub * 2),
+                    scale=cosine_scale,
+                    learn_scale=learn_scale,
+                ),
+                nn.ReLU(),
+                nn.Linear(out, num_sub),
             )
+            self.sub_head = sub_head
         elif sub_head_type == "linear":
             self.sub_head = nn.Linear(feat_dim, num_sub)
         else:
