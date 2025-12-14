@@ -2,11 +2,12 @@
 
 # Using ImageNet pretrained ResNet backbone, and chopping off FC head to Transfer Learn
 
-import torch.nn as nn
-from torchvision import models
 import os
-from torch.utils.data import Dataset
+
+import torch.nn as nn
 from PIL import Image
+from torch.utils.data import Dataset
+from torchvision import models
 
 
 def build_resnet_backbone(backbone: str):

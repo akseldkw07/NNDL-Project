@@ -1,9 +1,8 @@
 # Methods for Shared backbone + two heads + KL divergence
 import torch
 import torch.nn as nn
-from resnet_pretrain import build_resnet_backbone
-
 import torch.nn.functional as F
+from resnet_pretrain import build_resnet_backbone
 
 
 class CosineClassifier(nn.Module):
