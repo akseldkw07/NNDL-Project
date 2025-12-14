@@ -69,7 +69,7 @@ class SharedBackboneTwoHeads(nn.Module):
 # KL helper that maps subclass probs to superclass probs using sub_to_super mapping
 
 
-def sub_probs_to_super_probs(sub_probs, sub_to_super, num_super):
+def sub_probs_to_super_probs(sub_probs: torch.Tensor, sub_to_super: dict, num_super: int) -> torch.Tensor:
     """
     sub_probs: (B, num_sub), softmax over subclasses
     returns: (B, num_super), summed probs per super-class
@@ -86,7 +86,7 @@ def sub_probs_to_super_probs(sub_probs, sub_to_super, num_super):
 
 
 class SingleHeadModel(nn.Module):
-    def __init__(self, num_classes, backbone: str = "resnet18"):
+    def __init__(self, num_classes: int, backbone: str = "resnet18"):
         super().__init__()
         self.backbone, feat_dim = build_resnet_backbone(backbone)
         self.head = nn.Linear(feat_dim, num_classes)
@@ -97,7 +97,7 @@ class SingleHeadModel(nn.Module):
         return logits
 
 
-def accuracy_from_logits(logits, targets):
+def accuracy_from_logits(logits: torch.Tensor, targets: torch.Tensor):
     preds = logits.argmax(dim=1)
     correct = (preds == targets).sum().item()
     total = targets.size(0)

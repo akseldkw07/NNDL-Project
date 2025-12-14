@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from constants import *
@@ -14,14 +15,27 @@ from models import accuracy_from_logits, sub_probs_to_super_probs
 
 
 def train_one_epoch(
-    model, optimizer, loader, criterion, mode, sub_to_super=None, num_super=None, alpha_kl=0.1, temperature=1.0
+    model: nn.Module,
+    optimizer: torch.optim.Optimizer,
+    loader: torch.utils.data.DataLoader,
+    criterion: nn.Module,
+    mode: str,
+    sub_to_super: dict,
+    num_super: int,
+    trained_superclass_model: nn.Module | None = None,
+    alpha_kl=0.1,
+    temperature=1.0,
 ):
     model.train()
     running_loss = 0.0
     super_correct = sub_correct = 0
     super_total = sub_total = 0
+    loss: torch.Tensor
 
     for images, super_labels, sub_labels in loader:
+        images: torch.Tensor
+        super_labels: torch.Tensor
+        sub_labels: torch.Tensor
         images = images.to(device)
         super_labels = super_labels.to(device)
         sub_labels = sub_labels.to(device)
@@ -43,7 +57,12 @@ def train_one_epoch(
 
             # KL(super || agg_super) = sum p * (log p - log q)
             # using KLDivLoss with log_softmax input and probs target:
-            kl_loss = F.kl_div(input=torch.log(agg_super_probs + 1e-8), target=super_probs, reduction="batchmean")
+            kl_loss = F.kl_div(
+                F.log_softmax(super_logits / temperature, dim=1),
+                (agg_super_probs + 1e-8).log(),
+                reduction="batchmean",
+                log_target=True,
+            )
 
             loss = loss_super + loss_sub + alpha_kl * kl_loss
 
@@ -55,14 +74,49 @@ def train_one_epoch(
             sub_total += sut
 
         elif mode in ("single_head_super", "single_head_sub"):
-            logits = model(images)
+            logits: torch.Tensor = model(images)
             if mode == "single_head_super":
                 loss = criterion(logits, super_labels)
                 sc, st = accuracy_from_logits(logits, super_labels)
                 super_correct += sc
                 super_total += st
             else:
-                loss = criterion(logits, sub_labels)
+                # Base subclass CE loss
+                loss_sub = criterion(logits, sub_labels)
+
+                # Optional: superclass-consistency penalty using a pretrained superclass "teacher"
+                # Idea: teacher gives p(super|x). We aggregate the subclass head's probabilities into
+                # q(super|x) by summing subclass probs within each super. Penalize mismatch.
+                loss_consistency = torch.zeros((), device=device)
+
+                if trained_superclass_model is not None:
+                    assert sub_to_super is not None, "sub_to_super mapping required for superclass-consistency"
+
+                    with torch.no_grad():
+                        super_teacher_logits = trained_superclass_model(images)
+                        super_teacher_probs = F.softmax(super_teacher_logits, dim=1)
+
+                    # Aggregate subclass probs to super probs
+                    sub_probs = F.softmax(logits, dim=1)
+                    agg_super_probs = sub_probs_to_super_probs(sub_probs, sub_to_super, num_super)
+
+                    # Consistency loss option A (soft): KL( teacher || agg_super )
+                    # Avoid 0 * log 0 by clamping.
+                    eps = 1e-8
+                    loss_consistency = F.kl_div(
+                        (agg_super_probs.clamp_min(eps)).log(),
+                        super_teacher_probs,
+                        reduction="batchmean",
+                    )
+
+                    # Consistency loss option B (hard): encourage probability mass to fall inside the teacher's top super
+                    # Uncomment to add this as well.
+                    # in_super_prob = agg_super_probs.gather(1, super_pred_indices.unsqueeze(1)).squeeze(1)
+                    # loss_consistency = loss_consistency + (-torch.log(in_super_prob.clamp_min(eps))).mean()
+
+                # Weight the consistency term (tune as needed)
+                loss = loss_sub + ALPHA_SUPER_CONSISTENCY * loss_consistency
+
                 suc, sut = accuracy_from_logits(logits, sub_labels)
                 sub_correct += suc
                 sub_total += sut

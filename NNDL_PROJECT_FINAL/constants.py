@@ -66,7 +66,7 @@ NOVEL_SUPER_IDX = 3  # superclass index for novel
 NOVEL_SUB_IDX = 87  # subclass index for novel
 
 # Number of times run full-batch
-EPOCHS = 15
+EPOCHS = 25
 
 # Learning rates
 LR = 1e-4  # overall learning rate
@@ -92,9 +92,129 @@ TAU_SUPER = (
 )
 TAU_SUB = 0.73  # NOTE: per calibration with validation data. if max subclass prob < TAU_SUB  -> predict novel subclass
 SUB_HEAD_TYPE = "cosine"  # "linear" or "cosine"
-
+ALPHA_SUPER_CONSISTENCY = 0.2
 
 ########### MAKE SURE USE_PSEDUO_NOVEL IS FALSE BEFORE LEADERBOARD SUBMISSION ##################################################
 USE_PSEUDO_NOVEL = False  # to validate on held-out subclasses from training. Used to fine-tune TAU_SUB
 PSEUDO_NOVEL_FRACTION = 0.15
 PSEUDO_NOVEL_SEED = 123
+
+
+####################################################################################################################################
+ALLOWED_FINE_NAMES = {
+    # aquatic mammals
+    "beaver",
+    "dolphin",
+    "otter",
+    "seal",
+    "whale",
+    # fish
+    "aquarium_fish",
+    "flatfish",
+    "ray",
+    "shark",
+    "trout",
+    # flowers
+    "orchid",
+    "poppy",
+    "rose",
+    "sunflower",
+    "tulip",
+    # food containers
+    "bottle",
+    "bowl",
+    "can",
+    "cup",
+    "plate",
+    # fruit and vegetables
+    "apple",
+    "mushroom",
+    "orange",
+    "pear",
+    "sweet_pepper",
+    # household electrical devices
+    "clock",
+    "keyboard",
+    "lamp",
+    "telephone",
+    "television",
+    # household furniture
+    "bed",
+    "chair",
+    "couch",
+    "table",
+    "wardrobe",
+    # insects
+    "bee",
+    "beetle",
+    "butterfly",
+    "caterpillar",
+    "cockroach",
+    # large carnivores
+    "bear",
+    "leopard",
+    "lion",
+    "tiger",
+    "wolf",
+    # large man-made outdoor things
+    "bridge",
+    "castle",
+    "house",
+    "road",
+    "skyscraper",
+    # large natural outdoor scenes
+    "cloud",
+    "forest",
+    "mountain",
+    "plain",
+    "sea",
+    # large omnivores and herbivores
+    "camel",
+    "cattle",
+    "chimpanzee",
+    "elephant",
+    "kangaroo",
+    # medium-sized mammals
+    "fox",
+    "porcupine",
+    "possum",
+    "raccoon",
+    "skunk",
+    # non-insect invertebrates
+    "crab",
+    "lobster",
+    "snail",
+    "spider",
+    "worm",
+    # people
+    "baby",
+    "boy",
+    "girl",
+    "man",
+    "woman",
+    # small mammals
+    "hamster",
+    "mouse",
+    "rabbit",
+    "shrew",
+    "squirrel",
+    # trees
+    "maple",
+    "oak",
+    "palm",
+    "pine",
+    "willow",
+    # vehicles 1
+    "bicycle",
+    "bus",
+    "motorcycle",
+    "pickup_truck",
+    "train",
+    # vehicles 2
+    "lawn_mower",
+    "rocket",
+    "streetcar",
+    "tank",
+    "tractor",
+    # NOTE: reptiles group ("crocodile", "dinosaur", "lizard", "snake", "turtle") is *excluded* on purpose
+}

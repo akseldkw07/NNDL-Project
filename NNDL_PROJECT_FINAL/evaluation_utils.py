@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 import wandb
 from constants import *
@@ -10,7 +11,16 @@ from torch.utils.data import DataLoader
 
 
 @torch.no_grad()
-def eval_one_epoch(model, loader, criterion, mode, sub_to_super=None, num_super=None, alpha_kl=0.1, temperature=1.0):
+def eval_one_epoch(
+    model: nn.Module,
+    loader: torch.utils.data.DataLoader,
+    criterion: nn.Module,
+    mode: str,
+    sub_to_super: dict,
+    num_super: int,
+    alpha_kl=0.1,
+    temperature=1.0,
+):
     model.eval()
     running_loss = 0.0
     super_correct = sub_correct = 0

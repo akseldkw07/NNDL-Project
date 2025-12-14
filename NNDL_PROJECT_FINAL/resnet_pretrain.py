@@ -24,6 +24,30 @@ def build_resnet_backbone(backbone: str):
     return base, in_features
 
 
+# Dataset functions
+class BirdDogReptileDataset(Dataset):
+    def __init__(self, df, img_dir, transform=None):
+        self.df = df.reset_index(drop=True)
+        self.img_dir = img_dir
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.df)
+
+    def __getitem__(self, idx):
+        row = self.df.iloc[idx]
+        img_name = row["image"]
+        img_path = os.path.join(self.img_dir, img_name)
+
+        image = Image.open(img_path).convert("RGB")
+        if self.transform:
+            image = self.transform(image)
+
+        super_idx = int(row["superclass_index"])
+        sub_idx = int(row["subclass_index"])
+        return image, super_idx, sub_idx
+
+
 # Test dataset (for leaderboard predictions)
 
 
