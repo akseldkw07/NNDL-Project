@@ -72,7 +72,7 @@ EPOCHS = 25
 LR = 1e-4  # overall learning rate
 LR_HEAD = 1e-2  # head learning rate, used when freezing backbone
 WEIGHT_DECAY = 1e-4  # seems standard
-BACKBONE = "resnet50"  # "resnet18" or "resnet50"
+BACKBONE = "resnet18"  # "resnet18" or "resnet50"
 
 # Novel-super CIFAR integration (more images)
 # Options: "none", "small" (~1000 samples), "large" (~5000 samples)
@@ -91,6 +91,7 @@ TAU_SUPER = (
     0.99  # NOTE: per calibration with validation data. if max superclass prob < TAU_SUPER -> predict novel superclass
 )
 TAU_SUB = 0.73  # NOTE: per calibration with validation data. if max subclass prob < TAU_SUB  -> predict novel subclass
+SUPER_HEAD_TYPE = "linear"  # "linear" or "cosine"
 SUB_HEAD_TYPE = "cosine"  # "linear" or "cosine"
 ALPHA_SUPER_CONSISTENCY = 0.2
 

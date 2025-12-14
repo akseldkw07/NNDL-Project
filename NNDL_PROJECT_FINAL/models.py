@@ -28,6 +28,38 @@ class CosineClassifier(nn.Module):
         return logits * self.scale
 
 
+class SingleHeadModel(nn.Module):
+    def __init__(
+        self,
+        num_classes: int,
+        backbone: str,
+        head: str = "linear",  # "linear" or "cosine"
+        cosine_scale: float = 30.0,
+        learn_scale: bool = True,
+    ):
+        super().__init__()
+        self.backbone, feat_dim = build_resnet_backbone(backbone)
+
+        if head == "cosine":
+            self.head = nn.Sequential(
+                CosineClassifier(
+                    in_features=feat_dim,
+                    out_features=(out := num_classes),
+                    scale=cosine_scale,
+                    learn_scale=learn_scale,
+                ),
+                nn.ReLU(),
+                nn.Linear(out, num_classes),
+            )
+        elif head == "linear":
+            self.head = nn.Linear(feat_dim, num_classes)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        feats = self.backbone(x)
+        logits = self.head(feats)
+        return logits
+
+
 class SharedBackboneTwoHeads(nn.Module):
     def __init__(
         self,
@@ -83,38 +115,6 @@ def sub_probs_to_super_probs(sub_probs: torch.Tensor, sub_to_super: dict, num_su
     # For safety: re-normalize in case of any numeric drift
     super_probs = super_probs / (super_probs.sum(dim=1, keepdim=True) + 1e-8)
     return super_probs
-
-
-class SingleHeadModel(nn.Module):
-    def __init__(
-        self,
-        num_classes: int,
-        backbone: str = "resnet50",
-        head: str = "linear",  # "linear" or "cosine"
-        cosine_scale: float = 30.0,
-        learn_scale: bool = True,
-    ):
-        super().__init__()
-        self.backbone, feat_dim = build_resnet_backbone(backbone)
-
-        if head == "cosine":
-            self.head = nn.Sequential(
-                CosineClassifier(
-                    in_features=feat_dim,
-                    out_features=(out := num_classes),
-                    scale=cosine_scale,
-                    learn_scale=learn_scale,
-                ),
-                nn.ReLU(),
-                nn.Linear(out, num_classes),
-            )
-        elif head == "linear":
-            self.head = nn.Linear(feat_dim, num_classes)
-
-    def forward(self, x):
-        feats = self.backbone(x)
-        logits = self.head(feats)
-        return logits
 
 
 def accuracy_from_logits(logits: torch.Tensor, targets: torch.Tensor):

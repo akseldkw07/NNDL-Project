@@ -731,6 +731,13 @@ def novelty_dashboard(
             "Meaning": "Type of subclass head (linear or cosine)",
             "Value": str(SUB_HEAD_TYPE),
         },
+        {
+            "Split": "config",
+            "Head": "-",
+            "Metric": "SUPER_HEAD_TYPE",
+            "Meaning": "Type of superclass head (linear or cosine)",
+            "Value": str(SUPER_HEAD_TYPE),
+        },
     ]
 
     rows.extend(config_rows)

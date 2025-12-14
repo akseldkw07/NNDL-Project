@@ -190,7 +190,7 @@ def split_seen_vs_novel_super(df, val_split, novel_super_idx, rng_seed=42):
 # Helper to choose backbone (freeze or full) and choose optimizer parameter
 
 
-def setup_backbone_training(model, fine_tune_mode="full", lr_full=1e-4, lr_head=1e-3):
+def setup_backbone_training(model: nn.Module, fine_tune_mode="full", lr_full=1e-4, lr_head=1e-3):
     """
     Given a model with attributes:
         - model.backbone  (all feature extractor layers)

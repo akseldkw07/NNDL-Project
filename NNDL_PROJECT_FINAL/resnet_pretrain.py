@@ -15,7 +15,7 @@ def build_resnet_backbone(backbone: str):
     if backbone == "resnet18":
         base = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
     elif backbone == "resnet50":
-        base = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
+        base = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V2)
     else:
         raise ValueError(f"Unknown BACKBONE: {backbone}")
     # Remove the final classification layer
