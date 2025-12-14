@@ -6,9 +6,8 @@ from pathlib import Path
 import pandas as pd
 import torch
 from PIL import Image
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, Subset
 from torchvision import transforms as T
-from torch.utils.data import Subset
 
 from nndl_model.constants import DATA_DIR, DEF_IMAGE_SIZE, MEAN_IMG, STD_IMG
 

@@ -5,13 +5,13 @@ from datetime import datetime
 import wandb
 
 from nndl_model.base_model import BaseModel
-from nndl_model.constants import ROOT_DIR
+from nndl_model.constants import ROOT_DIR, WANDB_PROJECT_NAME, WANDB_TEAM_NAME
 
 
 def start_wandb_run(
     model: BaseModel,  # your nn.Module with BaseModel.name()
-    entity: str = "nndl-project-F25",  # your team/org slug
-    project: str | None = "Multihead-Classification-Competition",  # the shared project
+    entity: str = WANDB_TEAM_NAME,  # your team/org slug
+    project: str | None = WANDB_PROJECT_NAME,  # the shared project
     mode: t.Literal["online", "offline", "disabled"] = "online",  # "online" | "offline" | "disabled"
     job_type: str = "train",  # "train" | "eval" | etc.
     tags: list[str] | None = None,
