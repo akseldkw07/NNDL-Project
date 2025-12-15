@@ -9,7 +9,8 @@ DATA_DIR = ROOT_DIR / "img_data"
 MODEL_WEIGHT_DIR = ROOT_DIR / "model_weights"
 
 # WANDB
-WANDB_PROJECT_NAME = "nndl-project"
+WANDB_TEAM_NAME = "nndl-project-F25"
+WANDB_PROJECT_NAME = "Multihead-Classification-Competition"
 
 # DEVICE
 DEVICE_LITERAL = t.Literal["cuda", "mps", "xpu", "cpu"]  # extend to include "xla", "xpu" if needed
@@ -18,7 +19,6 @@ DEVICE_LITERAL = t.Literal["cuda", "mps", "xpu", "cpu"]  # extend to include "xl
 def pick_device() -> DEVICE_LITERAL:
     if torch.cuda.is_available():
         return "cuda"
-    # If you plan to use TPUs:
     if torch.backends.mps.is_available():
         return "mps"
     # If using Intel GPUs:

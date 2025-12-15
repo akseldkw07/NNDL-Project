@@ -1,5 +1,6 @@
 # logging setup
-import sys, logging
+import logging
+import sys
 
 
 def configure_logging(level=logging.INFO):
